@@ -1,0 +1,53 @@
+# yaml-language-server: $schema=../../docs/config.schema.json
+# Minimal second restaurant. Its only purpose is to prove nothing restaurant-specific is
+# hardcoded: different fulfillment (pickup only), payment (cash only), tone (formal).
+
+restaurant:
+  id: minimal_demo
+  name: "Perros Demo"
+  notify:
+    chat_id_env: MINIMAL_DEMO_STAFF_CHAT_ID
+
+fulfillment:
+  pickup: {enabled: true, eta_minutes: {min: 10, max: 15}}
+
+payment_methods:
+  - {id: efectivo, label: Efectivo, aliases: [efectivo, cash]}
+
+modes:
+  shadow: false
+
+tone:
+  style: formal
+  emoji: none
+  greeting: "Buenas tardes, bienvenido a Perros Demo. ¿Qué desea ordenar?"
+
+modifier_groups:
+  - id: salsas
+    label: Salsas
+    type: remove
+    options:
+      - {id: sin_salsa_rosada, label: "sin salsa rosada", aliases: ["sin rosada", "sin salsa rosada"]}
+      - {id: sin_pina, label: "sin salsa de piña", aliases: ["sin piña", "sin salsa de piña"]}
+
+categories:
+  - id: perros
+    name: Perros calientes
+    products:
+      - id: perro_sencillo
+        name: "Perro Sencillo"
+        price: 9000
+        aliases: [perro, "perro sencillo", "perrito"]
+        modifier_groups: [salsas]
+      - id: perro_suizo
+        name: "Perro Suizo"
+        price: 14000
+        aliases: [suizo, "perro suizo"]
+        modifier_groups: [salsas]
+  - id: refrescos
+    name: Refrescos
+    products:
+      - id: limonada
+        name: "Limonada Natural"
+        price: 5000
+        aliases: [limonada, "limonada natural"]
