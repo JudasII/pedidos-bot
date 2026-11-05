@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from pedidos_bot import __version__
@@ -14,3 +16,22 @@ def test_version(capsys: pytest.CaptureFixture[str]) -> None:
         main(["--version"])
     assert exc.value.code == 0
     assert __version__ in capsys.readouterr().out
+
+
+def test_config_schema_doc_is_up_to_date() -> None:
+
+    from pedidos_bot.config.loader import config_json_schema_text
+
+    doc = Path(__file__).resolve().parents[2] / "docs" / "config.schema.json"
+    assert doc.read_text(encoding="utf-8") == config_json_schema_text(), (
+        "run: uv run pedidos-bot config schema --output docs/config.schema.json"
+    )
+
+
+def test_config_validate_reports_failure(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("restaurant: {}\n", encoding="utf-8")
+    assert main(["config", "validate", str(bad)]) == 1
+    assert "configuration error" in capsys.readouterr().err
