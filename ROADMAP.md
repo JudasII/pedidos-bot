@@ -6,8 +6,8 @@ Detailed tracking in the [GitHub milestones and issues](https://github.com/Judas
 
 | Milestone | Goal | Status |
 |---|---|---|
-| M0 - Foundations | Repo, tooling, CI, conventions, base ADRs | in review (PR #35) |
-| M1 - Domain and configuration | Validated YAML schema, 2 sample restaurants, cart and totals, menu resolver | pending |
+| M0 - Foundations | Repo, tooling, CI, conventions, base ADRs | done |
+| M1 - Domain and configuration | Validated YAML schema, 2 sample restaurants, cart and totals, menu resolver | in review |
 | M2 - Engine with simulated LLM | Action contract, shortcuts, policy, FSM, templates, REPL; deterministic e2e tests | pending |
 | M3 - Persistence and idempotency | PostgreSQL, dedupe, outbox, expiry/resumption, safe restarts, logging with IDs | pending |
 | M4 - Telegram, restaurant, handoff, shadow mode | Telegram adapter, cashier notification, human relay, shadow mode | pending |
