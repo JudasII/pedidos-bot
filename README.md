@@ -1,68 +1,73 @@
 # pedidos-bot
 
-Asistente conversacional que toma pedidos de restaurantes por chat y entrega a la caja un pedido limpio, estructurado y listo para validar.
+A conversational assistant that takes restaurant orders over chat and hands the cashier a clean, structured order ready to validate.
 
-> Estado: **fase de desarrollo, hito M0 (fundaciones)**. Ver [ROADMAP.md](ROADMAP.md).
+> Status: **development phase, milestone M0 (foundations)**. See [ROADMAP.md](ROADMAP.md).
 
-## Visión
+## Vision
 
-En muchas hamburgueserías de barrio el 100 % de los pedidos entra por WhatsApp, y quien responde el chat es la misma persona que atiende la caja. Cada pedido son 10–20 mensajes de ida y vuelta, con datos que llegan desordenados ("2 sencillas, una sin cebolla, y una coca grande... ah, y a la calle 10").
+In many neighborhood burger joints in Colombia, 100% of orders arrive over WhatsApp, and the person answering the chat is the same person running the register. Each order is 10–20 back-and-forth messages, with data arriving out of order ("2 sencillas, una sin cebolla, y una coca grande... ah, y a la calle 10").
 
-`pedidos-bot` atiende esa conversación en español colombiano informal, valida todo contra el menú del restaurante, calcula el total y le entrega a la cajera **un resumen listo para confirmar**. Si no entiende, el cliente pide una persona o llega una nota de voz, pasa el chat a un humano.
+`pedidos-bot` handles that conversation in informal Colombian Spanish, validates everything against the restaurant's menu, computes the total and gives the cashier **a summary ready to confirm**. If it doesn't understand, the customer asks for a person, or a voice note arrives, it hands the chat over to a human.
 
-Principios:
+Principles:
 
-- **El LLM interpreta, el código decide.** El modelo extrae acciones del texto; precios, productos y totales salen sólo de la configuración del restaurante.
-- **Nada de restaurantes en el núcleo.** Todo lo específico vive en un YAML por restaurante.
-- **Canal y modelo intercambiables.** Telegram en desarrollo, WhatsApp como destino; Qwen3 4B local hoy, modelo hospedado si la evaluación lo justifica.
-- **Medible.** Cada turno se traza; cada pedido tiene costo y tokens.
+- **The LLM interprets, the code decides.** The model extracts actions from text; prices, products and totals come only from the restaurant's configuration.
+- **No restaurant in the core.** Everything restaurant-specific lives in a per-restaurant YAML file.
+- **Swappable channel and model.** Telegram in development, WhatsApp as the target; Qwen3 4B locally today, a hosted model if evaluation justifies it.
+- **Measurable.** Every turn is traced; every order has a cost and a token count.
 
-## Arquitectura
+## Architecture
 
 ```mermaid
 flowchart LR
-    C[Cliente] -->|mensaje| CH[Adaptador de canal<br/>Telegram / WhatsApp]
-    CH --> DD{¿Duplicado?}
-    DD -->|sí| X[ack y descartar]
-    DD -->|no| SC[Atajos deterministas]
-    SC -->|no resuelto| NLU[NLU con LLM<br/>JSON de acciones]
-    SC -->|resuelto| RES
-    NLU --> RES[Resolutor de menú<br/>alias + fuzzy]
-    RES --> CART[Pedido / carrito<br/>validaciones y totales]
-    CART --> POL[Política + ciclo de vida]
-    POL --> TPL[Respuesta por plantillas]
+    C[Customer] -->|message| CH[Channel adapter<br/>Telegram / WhatsApp]
+    CH --> DD{Duplicate?}
+    DD -->|yes| X[ack and drop]
+    DD -->|no| SC[Deterministic shortcuts]
+    SC -->|unresolved| NLU[LLM NLU<br/>JSON actions]
+    SC -->|resolved| RES
+    NLU --> RES[Menu resolver<br/>aliases + fuzzy]
+    RES --> CART[Order / cart<br/>validation and totals]
+    CART --> POL[Policy + lifecycle]
+    POL --> TPL[Template responses]
     TPL --> OB[(Outbox)]
     OB --> CH
-    POL -->|pedido confirmado / escalamiento| STAFF[Chat del restaurante]
-    CART --- DB[(SQLite)]
+    POL -->|confirmed order / handoff| STAFF[Restaurant chat]
+    CART --- DB[(PostgreSQL)]
+    NLU -. traces .-> LF[Langfuse]
 ```
 
-Detalle y alternativas descartadas en [docs/adr/0001-arquitectura-nlu-de-acciones.md](docs/adr/0001-arquitectura-nlu-de-acciones.md).
+Details and rejected alternatives: [ADR-0001](docs/adr/0001-architecture-action-nlu.md), [ADR-0002](docs/adr/0002-postgresql-persistence.md), [ADR-0003](docs/adr/0003-observability-langfuse.md).
 
-## Cómo correrlo
+## Running it
 
-Requisitos: [uv](https://docs.astral.sh/uv/) y, para el modelo local, [Ollama](https://ollama.com) con `qwen3:4b`.
+Requirements: [uv](https://docs.astral.sh/uv/) and, for the local model, [Ollama](https://ollama.com) with `qwen3:4b`. Docker (PostgreSQL, Langfuse) is needed from M3/M5 on.
 
 ```bash
 uv sync
-cp .env.example .env   # completa los valores
+cp .env.example .env   # fill in the values
 uv run pytest
 uv run pedidos-bot --help
 ```
 
-Los comandos para chatear con el bot (REPL y Telegram) llegan en los hitos M2 y M4.
+Commands to chat with the bot (terminal REPL and Telegram) arrive in milestones M2 and M4.
 
-## Métricas
+## Metrics
 
-Se publicarán aquí con números reales a partir del hito M5/M6: % de pedidos completos sin intervención humana, exactitud de ítems y modificadores, tasa de escalamiento, latencia p50/p95, tokens y costo por pedido, comparando el modelo local contra modelos hospedados.
+Published here with real numbers from M5/M6 on: % of orders completed without human intervention, item and modifier accuracy, escalation rate, p50/p95 latency, tokens and cost per order — comparing the local model against hosted models.
 
-## Documentación
+## Language
 
-- [ROADMAP.md](ROADMAP.md) — fases e hitos
-- [docs/adr/](docs/adr/) — decisiones de arquitectura
-- [docs/dev-notes/](docs/dev-notes/) — bitácora por hito
-- [CLAUDE.md](CLAUDE.md) — convenciones del proyecto
+The repository's working language is English (code, docs, issues, commits). The bot itself speaks Colombian Spanish, so customer-facing templates, prompts, restaurant configs and evaluation conversations are in Spanish.
 
-## Licencia
+## Documentation
+
+- [ROADMAP.md](ROADMAP.md) — phases and milestones
+- [docs/adr/](docs/adr/) — architecture decision records
+- [docs/dev-notes/](docs/dev-notes/) — per-milestone log
+- [CLAUDE.md](CLAUDE.md) — project conventions
+
+## License
 
 MIT
