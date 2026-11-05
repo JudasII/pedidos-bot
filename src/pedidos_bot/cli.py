@@ -1,4 +1,4 @@
-"""Punto de entrada de línea de comandos. Los subcomandos llegan en hitos posteriores."""
+"""Command-line entry point. Subcommands arrive in later milestones."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pedidos_bot import __version__
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pedidos-bot",
-        description="Asistente conversacional de pedidos para restaurantes.",
+        description="Conversational ordering assistant for restaurants.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser

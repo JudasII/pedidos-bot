@@ -15,8 +15,8 @@ repos:
   - repo: local
     hooks:
       - id: no-private-data
-        name: bloquear datos reales (data/private)
-        entry: "Los archivos bajo data/private/ nunca se suben al repo"
+        name: block real data (data/private)
+        entry: "Files under data/private/ must never be committed"
         language: fail
         files: ^data/private/
         exclude: ^data/private/\.gitkeep$

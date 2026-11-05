@@ -4,7 +4,7 @@ from pedidos_bot import __version__
 from pedidos_bot.cli import main
 
 
-def test_main_sin_argumentos_imprime_ayuda(capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_without_arguments_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert main([]) == 0
     assert "pedidos-bot" in capsys.readouterr().out
 

@@ -11,28 +11,28 @@ build/
 .coverage
 htmlcov/
 
-# Secretos y entorno local
+# Secrets and local environment
 .env
 .env.*
 !.env.example
 
-# Datos reales: NUNCA se suben (chats reales, exports, casos anonimizados)
+# Real data: NEVER committed (real chats, exports, anonymized cases)
 data/private/
 !data/private/.gitkeep
 
-# Bases de datos locales y artefactos
+# Local databases and artifacts
 *.db
 *.db-wal
 *.db-shm
 *.sqlite
 var/
 
-# Reportes de evaluación (se versionan solo los resúmenes elegidos en eval/reports/published/)
+# Evaluation reports (only selected summaries in eval/reports/published/ are tracked)
 eval/reports/*
 !eval/reports/.gitkeep
 !eval/reports/published/
 
-# IDEs / SO
+# IDEs / OS
 .idea/
 .vscode/
 .DS_Store

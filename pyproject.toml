@@ -1,7 +1,7 @@
 [project]
 name = "pedidos-bot"
 version = "0.0.1"
-description = "Asistente conversacional que toma pedidos de restaurantes por chat (Telegram en desarrollo, WhatsApp como destino)."
+description = "Conversational assistant that takes restaurant orders over chat (Telegram in development, WhatsApp as the target)."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
@@ -51,10 +51,10 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
-    "ollama: requiere un servidor Ollama local con el modelo configurado (se omite por defecto)",
-    "hosted: llama a un modelo hospedado (requiere API key; se omite por defecto)",
+    "ollama: requires a local Ollama server with the configured model (skipped by default)",
+    "hosted: calls a hosted model (requires an API key; skipped by default)",
 ]
 addopts = "-ra -m 'not ollama and not hosted'"
 
 [tool.ruff.lint.per-file-ignores]
-"scripts/github_bootstrap.py" = ["E501"]  # textos de issues: legibilidad sobre ancho
+"scripts/github_bootstrap.py" = ["E501"]  # issue texts: readability over line width

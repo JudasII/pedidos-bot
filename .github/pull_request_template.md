@@ -1,9 +1,9 @@
-## Qué cambia
+## What changes
 -
 
 ## Issues
 Closes #
 
-## Verificación
+## Verification
 - [ ] `uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest`
-- [ ] Sin secretos ni datos reales
+- [ ] No secrets or real data

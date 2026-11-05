@@ -1,4 +1,4 @@
-"""Guardas del repo público: secretos y datos reales nunca deben quedar versionables."""
+"""Public-repo guards: secrets and real data must never be committable."""
 
 import subprocess
 from pathlib import Path
@@ -22,26 +22,26 @@ def _is_ignored(rel_path: str) -> bool:
     [
         ".env",
         ".env.local",
-        "data/private/chat_real.txt",
-        "data/private/cases/caso_001.yaml",
+        "data/private/real_chat.txt",
+        "data/private/cases/case_001.yaml",
         "var/pedidos.db",
         "eval/reports/2026-11-04_qwen3.json",
     ],
 )
-def test_rutas_sensibles_estan_ignoradas(path: str) -> None:
-    assert _is_ignored(path), f"{path} debería estar en .gitignore"
+def test_sensitive_paths_are_ignored(path: str) -> None:
+    assert _is_ignored(path), f"{path} should be in .gitignore"
 
 
-@pytest.mark.parametrize("path", [".env.example", "eval/reports/published/resumen.md"])
-def test_rutas_publicas_no_estan_ignoradas(path: str) -> None:
-    assert not _is_ignored(path), f"{path} no debería estar ignorado"
+@pytest.mark.parametrize("path", [".env.example", "eval/reports/published/summary.md"])
+def test_public_paths_are_not_ignored(path: str) -> None:
+    assert not _is_ignored(path), f"{path} should not be ignored"
 
 
-def test_env_example_no_tiene_valores_de_secretos() -> None:
-    sensibles = ("TOKEN", "API_KEY", "SALT", "CHAT_ID")
+def test_env_example_has_no_secret_values() -> None:
+    sensitive = ("TOKEN", "API_KEY", "SECRET", "SALT", "CHAT_ID")
     for line in (ROOT / ".env.example").read_text(encoding="utf-8").splitlines():
         if line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        if any(s in key for s in sensibles):
-            assert value == "", f"{key} no debe traer valor en .env.example"
+        if any(s in key for s in sensitive):
+            assert value == "", f"{key} must be empty in .env.example"

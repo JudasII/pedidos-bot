@@ -1,26 +1,26 @@
 # Roadmap
 
-Seguimiento detallado en los [milestones e issues de GitHub](https://github.com/JudasII/pedidos-bot/milestones).
+Detailed tracking in the [GitHub milestones and issues](https://github.com/JudasII/pedidos-bot/milestones).
 
-## Fase 1 — Desarrollo (actual)
+## Phase 1 — Development (current)
 
-| Hito | Objetivo | Estado |
+| Milestone | Goal | Status |
 |---|---|---|
-| M0 - Fundaciones | Repo, tooling, CI, convenciones, ADRs base | en revisión (PR #35) |
-| M1 - Dominio y configuración | Schema YAML validado, 2 restaurantes de ejemplo, carrito y totales, resolutor de menú | pendiente |
-| M2 - Motor con LLM simulado | Contrato de acciones, atajos, política, FSM, plantillas, REPL; e2e deterministas | pendiente |
-| M3 - Persistencia e idempotencia | SQLite, dedupe, outbox, expiración/reanudación, reinicio seguro, logging con IDs | pendiente |
-| M4 - Telegram, restaurante, handoff, sombra | Adaptador Telegram, notificación a caja, relay humano, modo sombra | pendiente |
-| M5 - LLM real y observabilidad | Ollama + Qwen3 4B, OpenTelemetry + Phoenix, costos y tokens por pedido | pendiente |
-| M6 - Evaluación | Banco de conversaciones, comparación local vs hospedados, ADR de modelo | pendiente |
+| M0 - Foundations | Repo, tooling, CI, conventions, base ADRs | in review (PR #35) |
+| M1 - Domain and configuration | Validated YAML schema, 2 sample restaurants, cart and totals, menu resolver | pending |
+| M2 - Engine with simulated LLM | Action contract, shortcuts, policy, FSM, templates, REPL; deterministic e2e tests | pending |
+| M3 - Persistence and idempotency | PostgreSQL, dedupe, outbox, expiry/resumption, safe restarts, logging with IDs | pending |
+| M4 - Telegram, restaurant, handoff, shadow mode | Telegram adapter, cashier notification, human relay, shadow mode | pending |
+| M5 - Real LLM and observability | Ollama + Qwen3 4B, OpenTelemetry + Langfuse, cost and tokens per order | pending |
+| M6 - Evaluation | Conversation bank, local vs hosted comparison, model ADR | pending |
 
-## Fase 2 — Piloto con WhatsApp y modelo hospedado
+## Phase 2 — Pilot with WhatsApp and a hosted model
 
-- Adaptador WhatsApp Cloud API (webhooks, plantillas, ventana de 24 h, mensajes interactivos).
-- Despliegue de un solo proceso con SQLite y backups.
-- Piloto en modo sombra con 1 restaurante; luego modo autónomo si las métricas lo permiten.
+- WhatsApp Cloud API adapter (webhooks, templates, 24-hour window, interactive messages).
+- Deployment with PostgreSQL, backups and Langfuse; add a cache (Redis) only when a concrete need appears.
+- Shadow-mode pilot with 1 restaurant; autonomous mode if metrics allow.
 
-## Fase 3 — Decisión de cobro
+## Phase 3 — Monetization decision
 
-- Medir carga de atención ahorrada y errores de pedido durante el piloto.
-- Definir criterios de continuar/cobrar/archivar como portafolio.
+- Measure attention workload saved and order errors during the pilot.
+- Define criteria to continue / charge / archive as a portfolio piece.

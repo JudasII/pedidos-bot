@@ -1,10 +1,14 @@
-"""Crea labels, milestones e issues del proyecto en GitHub usando `gh`.
+"""Create (or sync) the project's labels, milestones and issues on GitHub using `gh`.
 
-Idempotente: omite labels, milestones e issues (por título) que ya existen.
-Uso: uv run python scripts/github_bootstrap.py [--repo JudasII/pedidos-bot] [--dry-run]
+Idempotent: existing labels, milestones and issues are skipped on create.
+With --sync, existing items are updated in place: label descriptions, milestone titles
+(matched by creation order) and issue title/body/milestone/labels (issue N == ISSUES[N-1]).
 
-El orden de ISSUES importa: en un repo nuevo, los dos primeros quedan como #1 y #2,
-que es lo que referencian los commits de M0.
+Usage:
+    uv run python scripts/github_bootstrap.py [--repo JudasII/pedidos-bot] [--dry-run] [--sync]
+
+Order matters: in a fresh repo the first two issues become #1 and #2, which the M0
+commits reference. Never reorder ISSUES or MILESTONES; append new ones at the end.
 """
 
 from __future__ import annotations
@@ -13,40 +17,52 @@ import argparse
 import json
 import subprocess
 from dataclasses import dataclass, field
+from typing import Any
 
 LABELS: dict[str, tuple[str, str]] = {
-    "type:feature": ("1d76db", "Funcionalidad nueva"),
-    "type:chore": ("c5def5", "Infraestructura, tooling, mantenimiento"),
-    "type:docs": ("0e8a16", "Documentación"),
-    "type:eval": ("5319e7", "Evaluación y métricas"),
-    "type:bug": ("d73a4a", "Algo no funciona"),
-    "area:engine": ("fbca04", "Motor de conversación"),
-    "area:domain": ("fef2c0", "Modelos de dominio, carrito, totales"),
-    "area:config": ("bfdadc", "Configuración por restaurante"),
-    "area:channel": ("f9d0c4", "Canales (Telegram, WhatsApp)"),
-    "area:llm": ("d4c5f9", "Proveedores LLM y prompts"),
-    "area:storage": ("c2e0c6", "Persistencia e idempotencia"),
-    "area:obs": ("e99695", "Observabilidad y costos"),
-    "area:eval": ("bfd4f2", "Banco de evaluación"),
+    "type:feature": ("1d76db", "New functionality"),
+    "type:chore": ("c5def5", "Infrastructure, tooling, maintenance"),
+    "type:docs": ("0e8a16", "Documentation"),
+    "type:eval": ("5319e7", "Evaluation and metrics"),
+    "type:bug": ("d73a4a", "Something is broken"),
+    "area:engine": ("fbca04", "Conversation engine"),
+    "area:domain": ("fef2c0", "Domain models, cart, totals"),
+    "area:config": ("bfdadc", "Per-restaurant configuration"),
+    "area:channel": ("f9d0c4", "Channels (Telegram, WhatsApp)"),
+    "area:llm": ("d4c5f9", "LLM providers and prompts"),
+    "area:storage": ("c2e0c6", "Persistence and idempotency"),
+    "area:obs": ("e99695", "Observability and costs"),
+    "area:eval": ("bfd4f2", "Evaluation bank"),
     "area:infra": ("ededed", "CI, repo, tooling"),
-    "priority:p0": ("b60205", "Bloquea el hito"),
-    "priority:p1": ("d93f0b", "Importante"),
-    "priority:p2": ("fbca04", "Deseable"),
-    "phase:dev": ("0052cc", "Fase 1: desarrollo"),
-    "phase:pilot": ("006b75", "Fase 2: piloto WhatsApp + modelo hospedado"),
-    "phase:business": ("5e4b8b", "Fase 3: decisión de cobro"),
+    "priority:p0": ("b60205", "Blocks the milestone"),
+    "priority:p1": ("d93f0b", "Important"),
+    "priority:p2": ("fbca04", "Nice to have"),
+    "phase:dev": ("0052cc", "Phase 1: development"),
+    "phase:pilot": ("006b75", "Phase 2: WhatsApp pilot + hosted model"),
+    "phase:business": ("5e4b8b", "Phase 3: monetization decision"),
 }
 
+M0 = "M0 - Foundations"
+M1 = "M1 - Domain and configuration"
+M2 = "M2 - Engine with simulated LLM"
+M3 = "M3 - Persistence and idempotency"
+M4 = "M4 - Telegram, restaurant, handoff, shadow mode"
+M5 = "M5 - Real LLM and observability"
+M6 = "M6 - Evaluation"
+P2 = "Phase 2 - Pilot"
+P3 = "Phase 3 - Monetization decision"
+
+# Same order the milestones were originally created in (used by --sync).
 MILESTONES: dict[str, str] = {
-    "M0 - Fundaciones": "Repo, tooling, CI, convenciones y ADRs base.",
-    "M1 - Dominio y configuración": "Schema YAML, 2 restaurantes, carrito/totales, resolutor de menú.",
-    "M2 - Motor con LLM simulado": "Acciones NLU, atajos, política, FSM, plantillas, e2e deterministas.",
-    "M3 - Persistencia e idempotencia": "SQLite, dedupe, outbox, expiración/reanudación, reinicio seguro.",
-    "M4 - Telegram, restaurante, handoff, sombra": "Canal Telegram, notificación a caja, relay humano, sombra.",
-    "M5 - LLM real y observabilidad": "Ollama + Qwen3 4B, OpenTelemetry + Phoenix, costos por pedido.",
-    "M6 - Evaluación": "Banco de conversaciones y comparación local vs hospedados.",
-    "Fase 2 - Piloto": "WhatsApp Cloud API, despliegue y piloto con 1 restaurante.",
-    "Fase 3 - Decisión de cobro": "Medición de valor y decisión de negocio.",
+    M0: "Repo, tooling, CI, conventions and base ADRs.",
+    M1: "YAML schema, 2 restaurants, cart/totals, menu resolver.",
+    M2: "NLU actions, shortcuts, policy, FSM, templates, deterministic e2e tests.",
+    M3: "PostgreSQL, dedupe, outbox, expiry/resumption, safe restarts.",
+    M4: "Telegram channel, cashier notification, human relay, shadow mode.",
+    M5: "Ollama + Qwen3 4B, OpenTelemetry + Langfuse, cost per order.",
+    M6: "Conversation bank and local vs hosted comparison.",
+    P2: "WhatsApp Cloud API, deployment and pilot with 1 restaurant.",
+    P3: "Value measurement and business decision.",
 }
 
 
@@ -60,409 +76,386 @@ class Issue:
     out_of_scope: list[str] = field(default_factory=list)
 
     def body(self) -> str:
-        parts = [f"## Contexto\n{self.context}", "## Criterios de aceptación"]
+        parts = [f"## Context\n{self.context}", "## Acceptance criteria"]
         parts.append("\n".join(f"- [ ] {c}" for c in self.criteria))
-        parts.append("- [ ] Suite completa en verde (ruff, mypy, pytest)")
+        parts.append("- [ ] Full suite green (ruff, mypy, pytest)")
         if self.out_of_scope:
-            parts.append("## Fuera de alcance\n" + "\n".join(f"- {o}" for o in self.out_of_scope))
+            parts.append("## Out of scope\n" + "\n".join(f"- {o}" for o in self.out_of_scope))
         return "\n\n".join(parts)
 
 
-M0, M1, M2, M3 = (
-    "M0 - Fundaciones",
-    "M1 - Dominio y configuración",
-    "M2 - Motor con LLM simulado",
-    "M3 - Persistencia e idempotencia",
-)
-M4, M5, M6 = (
-    "M4 - Telegram, restaurante, handoff, sombra",
-    "M5 - LLM real y observabilidad",
-    "M6 - Evaluación",
-)
-P2, P3 = "Fase 2 - Piloto", "Fase 3 - Decisión de cobro"
-
 ISSUES: list[Issue] = [
-    # M0 — deben quedar como #1 y #2
+    # M0 — must stay #1 and #2
     Issue(
-        "Tooling: uv, ruff, mypy, pytest, pre-commit con gitleaks y CI",
+        "Tooling: uv, ruff, mypy, pytest, pre-commit with gitleaks and CI",
         M0,
         ["type:chore", "area:infra", "priority:p0", "phase:dev"],
-        "Base reproducible y guardas para un repo público.",
+        "Reproducible base and guards for a public repo.",
         [
-            "`uv sync` y `uv run pytest` funcionan desde cero",
-            "CI en GitHub Actions corre ruff, mypy, pytest y gitleaks",
-            "pre-commit bloquea un token falso y cualquier archivo bajo data/private/",
+            "`uv sync` and `uv run pytest` work from scratch",
+            "GitHub Actions CI runs ruff, mypy, pytest and gitleaks",
+            "pre-commit blocks a fake token and any file under data/private/",
         ],
     ),
     Issue(
-        "Docs base: CLAUDE.md, ROADMAP, README, plantillas y ADRs 0001/0002",
+        "Base docs: CLAUDE.md, ROADMAP, README, templates and ADRs 0001-0003",
         M0,
         ["type:docs", "area:infra", "priority:p0", "phase:dev"],
-        "Dejar registradas las decisiones y convenciones antes de escribir lógica.",
+        "Record decisions and conventions before writing logic. English is the repo's working language.",
         [
-            "CLAUDE.md con alcance, arquitectura y convenciones",
-            "ROADMAP.md con las 3 fases",
-            "ADR-0001 (arquitectura) y ADR-0002 (SQLite) aceptados",
-            "Plantillas de issue y PR",
+            "CLAUDE.md with scope, architecture, language policy and conventions",
+            "ROADMAP.md with the 3 phases",
+            "ADR-0001 (architecture), ADR-0002 (PostgreSQL) and ADR-0003 (Langfuse) accepted",
+            "Issue and PR templates",
         ],
     ),
     # M1
     Issue(
-        "Schema de configuración por restaurante (pydantic + YAML + JSON Schema)",
+        "Per-restaurant configuration schema (pydantic + YAML + JSON Schema)",
         M1,
         ["type:feature", "area:config", "priority:p0", "phase:dev"],
-        "Menú, categorías, modificadores, reglas, pagos, modalidades, tono y chat del "
-        "restaurante en un YAML validado al arrancar.",
+        "Menu, categories, modifiers, rules, payment methods, fulfillment modes, tone and "
+        "restaurant chat in a YAML file validated at startup.",
         [
-            "Config inválido falla con error legible (ruta del campo y motivo)",
-            "Referencias cruzadas validadas (grupos de modificadores, categorías en reglas)",
-            "JSON Schema exportado a docs/ para edición asistida",
-            "IDs de chat y secretos se leen de variables de entorno, no del YAML",
+            "An invalid config fails with a readable error (field path and reason)",
+            "Cross-references validated (modifier groups, categories used in rules)",
+            "JSON Schema exported to docs/ for assisted editing",
+            "Chat IDs and secrets are read from environment variables, not from the YAML",
         ],
     ),
     Issue(
-        "Configs de ejemplo: burger_demo y minimal_demo",
+        "Sample configs: burger_demo and minimal_demo",
         M1,
         ["type:feature", "area:config", "priority:p0", "phase:dev"],
-        "Hamburguesería completa (3 hamburguesas, tenders, onion flowers, aros, papas, "
-        "malteadas, bebidas, cervezas) y un segundo restaurante mínimo para probar que nada "
-        "está hardcodeado.",
+        "A full burger restaurant (3 burgers, chicken tenders, onion flowers, onion rings, fries, "
+        "milkshakes, drinks, beers) and a second minimal restaurant to prove nothing is hardcoded.",
         [
-            "Ambos configs validan",
-            "Test que falla si algún nombre/ID de producto de los configs aparece en src/",
-            "minimal_demo usa otra modalidad, otros pagos y otro tono",
+            "Both configs validate",
+            "A test fails if any product name/ID from the configs appears in src/",
+            "minimal_demo uses a different fulfillment mode, payment methods and tone",
         ],
     ),
     Issue(
-        "Dominio: carrito, modificadores y totales con domicilio fijo / recoger",
+        "Domain: cart, modifiers and totals with fixed delivery fee / pickup",
         M1,
         ["type:feature", "area:domain", "priority:p0", "phase:dev"],
-        "Modelo de pedido determinista; el LLM nunca calcula precios.",
+        "Deterministic order model; the LLM never computes prices.",
         [
-            "Totales correctos con adiciones, quitar ingredientes, tamaños obligatorios y domicilio",
-            "Recoger en local no cobra domicilio ni pide dirección",
-            "Validación de modificadores requeridos y máximos por línea",
-            "Formato COP `$18.000`",
+            "Correct totals with add-ons, removed ingredients, required sizes and delivery fee",
+            "Pickup charges no delivery fee and asks for no address",
+            "Validation of required modifiers and per-line maximums",
+            "COP formatting `$18.000`",
         ],
     ),
     Issue(
-        "Resolutor de menú: texto del cliente a IDs (alias + fuzzy)",
+        "Menu resolver: customer text to menu IDs (aliases + fuzzy)",
         M1,
         ["type:feature", "area:engine", "priority:p0", "phase:dev"],
-        "Traduce 'una coca grande', 'hamburgesa sensilla', 'papitas' a IDs del menú.",
+        "Maps 'una coca grande', 'hamburgesa sensilla', 'papitas' to menu IDs.",
         [
-            "Tabla de 30+ variantes con errores ortográficos y jerga resuelve correctamente",
-            "Ambigüedad o baja confianza devuelve candidatos para aclarar, nunca adivina",
-            "Producto inexistente se rechaza explícitamente",
+            "A table of 30+ variants with typos and slang resolves correctly",
+            "Ambiguity or low confidence returns candidates to clarify; it never guesses",
+            "Non-existent products are explicitly rejected",
         ],
     ),
     # M2
     Issue(
-        "Contrato NLU: schema de acciones e interfaz LLMProvider + FakeLLM",
+        "NLU contract: action schema, LLMProvider interface and FakeLLM",
         M2,
         ["type:feature", "area:llm", "priority:p0", "phase:dev"],
-        "Acciones tipadas (add_item, remove_item, update_item, set_fulfillment, set_address, "
+        "Typed actions (add_item, remove_item, update_item, set_fulfillment, set_address, "
         "set_payment, confirm, deny, cancel_order, ask_human, ask_question, greeting, unknown).",
         [
-            "JSON Schema de acciones generado desde pydantic",
-            "LLMProvider con resultado que incluye uso de tokens y latencia",
-            "FakeLLM scriptado y por reglas para tests deterministas",
+            "Action JSON Schema generated from pydantic",
+            "LLMProvider result includes token usage and latency",
+            "Scripted and rule-based FakeLLM for deterministic tests",
         ],
     ),
     Issue(
-        "Atajos deterministas pre-LLM",
+        "Deterministic pre-LLM shortcuts",
         M2,
         ["type:feature", "area:engine", "priority:p1", "phase:dev"],
-        "Confirmaciones, cancelar, pedir persona, métodos de pago y mensajes no-texto sin LLM.",
+        "Confirmations, cancel, ask for a person, payment methods and non-text messages without the LLM.",
         [
-            "Cobertura de variantes coloquiales ('dale', 'de una', 'listo', 'nequi')",
-            "Mensajes de voz, ubicación e imagen producen escalamiento",
-            "Métrica: turno marcado como resuelto sin LLM",
+            "Covers colloquial variants ('dale', 'de una', 'listo', 'nequi')",
+            "Voice, location and image messages trigger a handoff",
+            "Metric: turn flagged as resolved without the LLM",
         ],
     ),
     Issue(
-        "Política y FSM de ciclo de vida",
+        "Policy and lifecycle FSM",
         M2,
         ["type:feature", "area:engine", "priority:p0", "phase:dev"],
-        "Siguiente pregunta según slots faltantes; estados ORDERING, AWAITING_CONFIRMATION, "
+        "Next question from missing slots; states ORDERING, AWAITING_CONFIRMATION, "
         "PENDING_STAFF_CONFIRMATION, CONFIRMED, CANCELLED, HANDOFF, EXPIRED.",
         [
-            "Flujo saludo → ítems → ¿algo más? (upsell una vez) → modalidad → dirección → "
-            "pago → confirmación con resumen y tiempo estimado",
-            "Correcciones en cualquier punto vuelven a ORDERING sin perder datos",
-            "Dos 'no entendí' seguidos escalan",
-            "Transiciones inválidas imposibles (tests de tabla)",
+            "Flow greeting → items → anything else? (upsell once) → fulfillment → address → "
+            "payment → confirmation with summary and ETA",
+            "Corrections at any point return to ORDERING without losing data",
+            "Two consecutive 'didn't understand' turns escalate",
+            "Invalid transitions are impossible (table-driven tests)",
         ],
     ),
     Issue(
-        "Respuestas por plantillas con tono configurable",
+        "Template responses with configurable tone",
         M2,
         ["type:feature", "area:engine", "priority:p1", "phase:dev"],
-        "Textos en español colombiano; tono por restaurante; parafraseo LLM detrás de flag.",
+        "Customer-facing text in Colombian Spanish; per-restaurant tone; LLM paraphrasing behind a flag.",
         [
-            "Resumen de pedido legible con líneas, modificadores, total y ETA",
-            "Dos tonos distintos verificados con los dos configs",
-            "Botones degradan a lista numerada según capacidades del canal",
+            "Readable order summary with lines, modifiers, total and ETA",
+            "Two different tones verified with the two configs",
+            "Buttons degrade to a numbered list according to channel capabilities",
         ],
     ),
     Issue(
-        "Interfaz de canal + canal en memoria + REPL de desarrollo",
+        "Channel interface + in-memory channel + development REPL",
         M2,
         ["type:feature", "area:channel", "priority:p0", "phase:dev"],
-        "Interfaz pensada para WhatsApp (ventana 24 h, plantillas, interactivos, voz, "
-        "ubicación, imágenes, webhooks duplicados).",
+        "Interface designed for WhatsApp (24-hour window, templates, interactive messages, voice, "
+        "locations, images, duplicate webhooks).",
         [
-            "InboundMessage/OutboundMessage/ChannelCapabilities definidos",
-            "`pedidos-bot chat --restaurant burger_demo` permite conversar en terminal",
-            "Canal fake 'tipo WhatsApp' (3 botones, ventana 24 h) usado en tests",
+            "InboundMessage/OutboundMessage/ChannelCapabilities defined",
+            "`pedidos-bot chat --restaurant burger_demo` allows chatting in the terminal",
+            "A fake 'WhatsApp-like' channel (3 buttons, 24-hour window) used in tests",
         ],
     ),
     Issue(
-        "E2E deterministas de conversación con FakeLLM",
+        "Deterministic end-to-end conversation tests with FakeLLM",
         M2,
         ["type:eval", "area:engine", "priority:p0", "phase:dev"],
-        "Escenarios genéricos corridos contra ambos configs.",
+        "Generic scenarios run against both configs.",
         [
-            "Flujo feliz, multi-dato, corrección en confirmación, cancelación, pregunta de "
-            "menú, pedir persona y no-texto",
-            "'2 sencillas, una sin cebolla, y una coca grande' produce 2 líneas distintas + bebida",
+            "Happy path, multi-field message, correction at confirmation, cancellation, menu "
+            "question, ask for a person and non-text message",
+            "'2 sencillas, una sin cebolla, y una coca grande' yields 2 distinct lines + a drink",
         ],
     ),
     # M3
     Issue(
-        "SQLite: esquema, migraciones y repositorios",
+        "PostgreSQL: schema, migrations and repositories",
         M3,
         ["type:feature", "area:storage", "priority:p0", "phase:dev"],
-        "Tablas conversations, conversation_state, inbound_messages, turns, llm_calls, orders, "
-        "order_items, outbox, handoffs.",
+        "Tables conversations, conversation_state, inbound_messages, turns, llm_calls, orders, "
+        "order_items, outbox, handoffs. psycopg 3, plain SQL migrations, Docker Compose for local dev.",
         [
-            "Migraciones numeradas aplicadas al arrancar, idempotentes",
-            "WAL + foreign keys; bloqueo optimista por versión",
+            "Numbered migrations applied at startup, idempotent",
+            "`docker compose up db` provides a local database; CI runs repository tests against a Postgres service",
+            "Row locking per conversation (`SELECT ... FOR UPDATE`)",
         ],
     ),
     Issue(
-        "Idempotencia: dedupe de entrada y pedidos sin duplicar",
+        "Idempotency: inbound dedupe and no duplicate orders",
         M3,
         ["type:feature", "area:storage", "priority:p0", "phase:dev"],
-        "Webhooks duplicados y reintentos no deben crear pedidos dobles.",
+        "Duplicate webhooks and retries must not create duplicate orders.",
         [
-            "Mismo external_id procesado una sola vez",
-            "'sí' repetido no crea un segundo pedido",
-            "Un turno = una transacción",
+            "The same external_id is processed only once",
+            "A repeated 'sí' does not create a second order",
+            "One turn = one transaction",
         ],
     ),
     Issue(
-        "Outbox con reintentos y reinicio seguro",
+        "Outbox with retries and safe restarts",
         M3,
         ["type:feature", "area:storage", "priority:p0", "phase:dev"],
-        "Envíos a cliente y restaurante confiables aunque el proceso se caiga.",
+        "Reliable delivery to customer and restaurant even if the process crashes.",
         [
-            "Reintentos exponenciales con dedupe_key",
-            "Test que reinicia el servicio a mitad de pedido y continúa",
+            "Exponential retries with dedupe_key; workers claim rows with FOR UPDATE SKIP LOCKED",
+            "A test restarts the service mid-order and the order continues",
         ],
     ),
     Issue(
-        "Expiración y reanudación de sesiones",
+        "Session expiry and resumption",
         M3,
         ["type:feature", "area:engine", "priority:p1", "phase:dev"],
-        "El cliente puede responder 40 minutos o un día después.",
+        "The customer may reply 40 minutes or a day later.",
         [
-            "< ventana silenciosa: continúa; < 24 h: pregunta si seguimos; > 24 h o menú "
-            "cambiado: nueva conversación con carrito recuperable y precios revalidados",
-            "Umbrales configurables por restaurante",
+            "< silent window: continue; < 24 h: ask whether to continue; > 24 h or menu "
+            "changed: new conversation with a recoverable cart and revalidated prices",
+            "Thresholds configurable per restaurant",
         ],
     ),
     Issue(
-        "Logging estructurado con IDs de correlación y enmascarado de PII",
+        "Structured logging with correlation IDs and PII masking",
         M3,
         ["type:feature", "area:obs", "priority:p0", "phase:dev"],
-        "conversation_id, turn_id, order_id en todos los logs; teléfonos y direcciones enmascarados.",
+        "conversation_id, turn_id, order_id in every log line; phones and addresses masked.",
         [
-            "Por turno: mensaje, estado antes/después, acciones, validaciones, latencia, errores",
-            "Tests del enmascarador con teléfonos y direcciones colombianas",
-            "Identificadores de cliente como HMAC con sal",
+            "Per turn: message, state before/after, actions, validations, latency, errors",
+            "Masker tests with Colombian phone numbers and addresses",
+            "Customer identifiers as salted HMAC",
         ],
     ),
     # M4
     Issue(
-        "Adaptador de Telegram para clientes",
+        "Telegram adapter for customers",
         M4,
         ["type:feature", "area:channel", "priority:p0", "phase:dev"],
-        "Long polling con offset persistido; mapeo a InboundMessage.",
+        "Long polling with persisted offset; mapping to InboundMessage.",
         [
-            "Texto, voz, ubicación, foto y botones mapeados",
-            "update_id usado para dedupe",
+            "Text, voice, location, photo and buttons mapped",
+            "update_id used for dedupe",
         ],
     ),
     Issue(
-        "Notificación de pedido al chat del restaurante",
+        "Order notification to the restaurant chat",
         M4,
         ["type:feature", "area:channel", "priority:p0", "phase:dev"],
-        "Resumen limpio listo para que la cajera valide.",
-        ["Resumen con código, líneas, modificadores, total, modalidad, dirección y pago"],
+        "A clean summary ready for the cashier to validate.",
+        ["Summary with code, lines, modifiers, total, fulfillment, address and payment method"],
     ),
     Issue(
-        "Handoff a humano por relay",
+        "Human handoff via relay",
         M4,
         ["type:feature", "area:engine", "priority:p0", "phase:dev"],
-        "La cajera responde desde el chat del restaurante; el bot reenvía y se pausa.",
+        "The cashier replies from the restaurant chat; the bot forwards and pauses.",
         [
-            "Reply/`/responder` reenvía al cliente; `/devolver` o timeout devuelve el control",
-            "Adjuntos no soportados (voz, ubicación, imagen) se reenvían al restaurante",
+            "Reply/`/responder` forwards to the customer; `/devolver` or timeout returns control",
+            "Unsupported attachments (voice, location, image) are forwarded to the restaurant",
         ],
     ),
     Issue(
-        "Modo sombra",
+        "Shadow mode",
         M4,
         ["type:feature", "area:engine", "priority:p0", "phase:dev"],
-        "El bot arma el pedido y un humano lo confirma antes de considerarlo válido.",
+        "The bot builds the order and a human must confirm it before it counts as valid.",
         [
-            "Botones ✓/✗ en el chat del restaurante",
-            "Rechazo vuelve a ORDERING o cancela, con aviso al cliente",
-            "Demo manual documentada en dev-notes",
+            "✓/✗ buttons in the restaurant chat",
+            "Rejection returns to ORDERING or cancels, notifying the customer",
+            "Manual demo documented in dev notes",
         ],
     ),
     # M5
     Issue(
-        "OllamaProvider con structured outputs",
+        "OllamaProvider with structured outputs",
         M5,
         ["type:feature", "area:llm", "priority:p0", "phase:dev"],
-        "Qwen3:4b local con `format` JSON schema y `think=false`.",
+        "Local Qwen3:4b with a JSON-schema `format` and `think=false`.",
         [
-            "Un reintento ante JSON inválido; luego aclaración/escalamiento",
-            "Tokens desde prompt_eval_count/eval_count",
-            "Tests de integración marcados @pytest.mark.ollama",
+            "One retry on invalid JSON; then clarification/handoff",
+            "Tokens from prompt_eval_count/eval_count",
+            "Integration tests marked @pytest.mark.ollama",
         ],
     ),
     Issue(
-        "Prompt NLU v1 con few-shots en español colombiano",
+        "NLU prompt v1 with Colombian Spanish few-shots",
         M5,
         ["type:feature", "area:llm", "priority:p0", "phase:dev"],
-        "Prompt versionado y compacto con el menú del restaurante.",
+        "Versioned, compact prompt including the restaurant's menu.",
         [
-            "Few-shots de multi-dato y división de cantidades",
-            "Versión del prompt registrada por llamada",
+            "Few-shots for multi-field messages and quantity splitting",
+            "Prompt version recorded on every call (Langfuse prompt management)",
         ],
     ),
     Issue(
-        "OpenTelemetry + Phoenix auto-hospedado",
+        "OpenTelemetry + self-hosted Langfuse",
         M5,
         ["type:feature", "area:obs", "priority:p1", "phase:dev"],
-        "Spans por turno y llamada LLM con atributos GenAI.",
+        "Spans per turn and per LLM call with GenAI attributes, exported via OTLP to Langfuse.",
         [
-            "docker-compose con Phoenix",
-            "Traza completa de un pedido visible y enmascarada",
+            "docker-compose profile with self-hosted Langfuse",
+            "A full order trace is visible in Langfuse with PII masked",
         ],
     ),
     Issue(
-        "Token economics: llm_calls, tabla de precios y reporte de costos",
+        "Token economics: llm_calls, pricing table and cost report",
         M5,
         ["type:feature", "area:obs", "priority:p0", "phase:dev"],
-        "Costo y tokens por turno, pedido y conversación.",
+        "Cost and tokens per turn, order and conversation.",
         [
-            "config/pricing.yaml editable por modelo",
-            "`pedidos-bot report costs` con costo/tokens por pedido (p50/p95)",
+            "Editable per-model config/pricing.yaml",
+            "`pedidos-bot report costs` with cost/tokens per order (p50/p95)",
         ],
     ),
     # M6
     Issue(
-        "Banco de conversaciones sintéticas",
+        "Synthetic conversation bank",
         M6,
         ["type:eval", "area:eval", "priority:p0", "phase:dev"],
-        "Errores ortográficos, jerga, cambios de opinión, ambigüedad, multi-dato.",
-        ["≥80 casos con pedido esperado", "Cobertura de ambos configs"],
+        "Typos, slang, changes of mind, ambiguity, multi-field messages (conversations in Spanish).",
+        ["≥80 cases with expected order", "Coverage of both configs"],
     ),
     Issue(
-        "Runner de evaluación, métricas y reporte comparativo",
+        "Evaluation runner, metrics and comparison report",
         M6,
         ["type:eval", "area:eval", "priority:p0", "phase:dev"],
-        "Corre el motor real con el modelo elegido.",
+        "Runs the real engine with the selected model; results also pushed to Langfuse datasets.",
         [
-            "% completos sin humano, exactitud de ítems y modificadores, escalamiento, "
-            "latencia p50/p95, tokens y costo por pedido",
-            "Tabla comparativa entre modelos",
+            "% completed without a human, item and modifier accuracy, escalation rate, "
+            "p50/p95 latency, tokens and cost per order",
+            "Comparison table across models",
         ],
     ),
     Issue(
-        "Proveedores hospedados para evaluación (Anthropic, Google, Ollama cloud)",
+        "Hosted providers for evaluation (Anthropic, Google, Ollama cloud)",
         M6,
         ["type:feature", "area:llm", "priority:p1", "phase:dev"],
-        "Sólo para comparar; mismo contrato LLMProvider.",
-        ["Precios en pricing.yaml", "Tests marcados @pytest.mark.hosted"],
+        "For comparison only; same LLMProvider contract.",
+        ["Prices in pricing.yaml", "Tests marked @pytest.mark.hosted"],
     ),
     Issue(
-        "Anonimizador de chats reales (data/private, nunca en el repo)",
+        "Real chat anonymizer (data/private, never in the repo)",
         M6,
         ["type:eval", "area:eval", "priority:p1", "phase:dev"],
-        "Convierte exports de WhatsApp en casos anonimizados para anotar.",
+        "Turns WhatsApp exports into anonymized cases for annotation.",
         [
-            "Nombres, teléfonos y direcciones reemplazados",
-            "Salida sólo bajo data/private/; reportes publican sólo agregados",
+            "Names, phone numbers and addresses replaced",
+            "Output only under data/private/; reports publish aggregates only",
         ],
     ),
     Issue(
-        "ADR: decisión de modelo para el piloto",
+        "ADR: model choice for the pilot",
         M6,
         ["type:docs", "area:llm", "priority:p1", "phase:dev"],
-        "Con base en la tabla comparativa.",
-        ["ADR con métricas reales y costo proyectado por pedido"],
+        "Based on the comparison table.",
+        ["ADR with real metrics and projected cost per order"],
     ),
-    # Fase 2 / 3 (backlog)
+    # Phase 2 / 3 (backlog)
     Issue(
-        "Adaptador WhatsApp Cloud API",
+        "WhatsApp Cloud API adapter",
         P2,
         ["type:feature", "area:channel", "priority:p1", "phase:pilot"],
-        "Webhooks, verificación de firma, plantillas, ventana de 24 h, interactivos.",
-        ["Mismo motor sin cambios", "Dedupe por wamid"],
+        "Webhooks, signature verification, templates, 24-hour window, interactive messages.",
+        ["Same engine, no changes", "Dedupe by wamid"],
     ),
     Issue(
-        "Despliegue del piloto",
+        "Pilot deployment",
         P2,
         ["type:chore", "area:infra", "priority:p1", "phase:pilot"],
-        "Un proceso con SQLite, backups y observabilidad.",
-        ["Runbook de despliegue y restauración"],
+        "PostgreSQL with backups, Langfuse and the bot process; add a cache only if a need appears.",
+        ["Deployment and restore runbook"],
     ),
     Issue(
-        "Piloto en modo sombra con 1 restaurante",
+        "Shadow-mode pilot with 1 restaurant",
         P2,
         ["type:eval", "area:eval", "priority:p1", "phase:pilot"],
-        "Medir en producción real.",
-        ["Métricas semanales en dev-notes"],
+        "Measure in real production.",
+        ["Weekly metrics in dev notes"],
     ),
     Issue(
-        "Criterios de decisión de cobro",
+        "Monetization decision criteria",
         P3,
         ["type:docs", "priority:p2", "phase:business"],
-        "Carga de atención ahorrada, errores, costo por pedido.",
-        ["Documento de decisión: cobrar / continuar / archivar como portafolio"],
+        "Attention workload saved, errors, cost per order.",
+        ["Decision document: charge / continue / archive as a portfolio piece"],
     ),
 ]
 
 
 def gh(*args: str, dry_run: bool = False) -> str:
     if dry_run:
-        print("gh", " ".join(args))
+        print("gh", " ".join(args[:4]), "...")
         return ""
     return subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--repo", default="JudasII/pedidos-bot")
-    parser.add_argument("--dry-run", action="store_true")
-    args = parser.parse_args()
-    repo, dry = args.repo, args.dry_run
-
-    existing_labels = (
-        set()
-        if dry
-        else {
-            lbl["name"]
-            for lbl in json.loads(gh("label", "list", "-R", repo, "--json", "name", "-L", "200"))
-        }
-    )
+def ensure_labels(repo: str, dry: bool, sync: bool) -> None:
+    existing: set[str] = set()
+    if not dry:
+        raw = gh("label", "list", "-R", repo, "--json", "name", "-L", "200")
+        existing = {lbl["name"] for lbl in json.loads(raw)}
     for name, (color, desc) in LABELS.items():
-        if name not in existing_labels:
+        if name not in existing:
             gh(
                 "label",
                 "create",
@@ -475,17 +468,43 @@ def main() -> None:
                 desc,
                 dry_run=dry,
             )
+        elif sync:
+            gh(
+                "label",
+                "edit",
+                name,
+                "-R",
+                repo,
+                "--color",
+                color,
+                "--description",
+                desc,
+                dry_run=dry,
+            )
 
-    existing_ms = (
-        set()
-        if dry
-        else {
-            m["title"]
-            for m in json.loads(gh("api", f"repos/{repo}/milestones?state=all&per_page=100"))
-        }
-    )
+
+def ensure_milestones(repo: str, dry: bool, sync: bool) -> None:
+    existing: list[dict[str, Any]] = []
+    if not dry:
+        existing = json.loads(gh("api", f"repos/{repo}/milestones?state=all&per_page=100"))
+        existing.sort(key=lambda m: int(m["number"]))
+    if sync and existing:
+        for ms, (title, desc) in zip(existing, MILESTONES.items(), strict=False):
+            gh(
+                "api",
+                "-X",
+                "PATCH",
+                f"repos/{repo}/milestones/{ms['number']}",
+                "-f",
+                f"title={title}",
+                "-f",
+                f"description={desc}",
+                dry_run=dry,
+            )
+        return
+    titles = {m["title"] for m in existing}
     for title, desc in MILESTONES.items():
-        if title not in existing_ms:
+        if title not in titles:
             gh(
                 "api",
                 f"repos/{repo}/milestones",
@@ -496,18 +515,48 @@ def main() -> None:
                 dry_run=dry,
             )
 
-    existing_issues = (
-        set()
-        if dry
-        else {
-            i["title"]
-            for i in json.loads(
-                gh("issue", "list", "-R", repo, "--state", "all", "--json", "title", "-L", "500")
-            )
-        }
-    )
-    for issue in ISSUES:
-        if issue.title in existing_issues:
+
+def ensure_issues(repo: str, dry: bool, sync: bool) -> None:
+    existing: dict[int, dict[str, Any]] = {}
+    if not dry:
+        raw = gh(
+            "issue",
+            "list",
+            "-R",
+            repo,
+            "--state",
+            "all",
+            "--json",
+            "number,title,labels",
+            "-L",
+            "500",
+        )
+        existing = {int(i["number"]): i for i in json.loads(raw)}
+    titles = {i["title"] for i in existing.values()}
+    for number, issue in enumerate(ISSUES, start=1):
+        if sync and number in existing:
+            current = {lbl["name"] for lbl in existing[number]["labels"]}
+            cmd = [
+                "issue",
+                "edit",
+                str(number),
+                "-R",
+                repo,
+                "--title",
+                issue.title,
+                "--body",
+                issue.body(),
+                "--milestone",
+                issue.milestone,
+            ]
+            for label in sorted(set(issue.labels) - current):
+                cmd += ["--add-label", label]
+            for label in sorted(current - set(issue.labels)):
+                cmd += ["--remove-label", label]
+            gh(*cmd, dry_run=dry)
+            print(f"synced #{number}: {issue.title}")
+            continue
+        if issue.title in titles:
             continue
         cmd = [
             "issue",
@@ -526,6 +575,17 @@ def main() -> None:
         out = gh(*cmd, dry_run=dry)
         if out:
             print(out.strip())
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repo", default="JudasII/pedidos-bot")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--sync", action="store_true", help="update existing items in place")
+    args = parser.parse_args()
+    ensure_labels(args.repo, args.dry_run, args.sync)
+    ensure_milestones(args.repo, args.dry_run, args.sync)
+    ensure_issues(args.repo, args.dry_run, args.sync)
 
 
 if __name__ == "__main__":
