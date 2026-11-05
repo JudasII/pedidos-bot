@@ -55,3 +55,6 @@ markers = [
     "hosted: llama a un modelo hospedado (requiere API key; se omite por defecto)",
 ]
 addopts = "-ra -m 'not ollama and not hosted'"
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/github_bootstrap.py" = ["E501"]  # textos de issues: legibilidad sobre ancho

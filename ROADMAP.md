@@ -6,13 +6,13 @@ Seguimiento detallado en los [milestones e issues de GitHub](https://github.com/
 
 | Hito | Objetivo | Estado |
 |---|---|---|
-| M0 – Fundaciones | Repo, tooling, CI, convenciones, ADRs base | en curso |
-| M1 – Dominio y configuración | Schema YAML validado, 2 restaurantes de ejemplo, carrito y totales, resolutor de menú | pendiente |
-| M2 – Motor con LLM simulado | Contrato de acciones, atajos, política, FSM, plantillas, REPL; e2e deterministas | pendiente |
-| M3 – Persistencia e idempotencia | SQLite, dedupe, outbox, expiración/reanudación, reinicio seguro, logging con IDs | pendiente |
-| M4 – Telegram, restaurante, handoff, sombra | Adaptador Telegram, notificación a caja, relay humano, modo sombra | pendiente |
-| M5 – LLM real y observabilidad | Ollama + Qwen3 4B, OpenTelemetry + Phoenix, costos y tokens por pedido | pendiente |
-| M6 – Evaluación | Banco de conversaciones, comparación local vs hospedados, ADR de modelo | pendiente |
+| M0 - Fundaciones | Repo, tooling, CI, convenciones, ADRs base | en curso |
+| M1 - Dominio y configuración | Schema YAML validado, 2 restaurantes de ejemplo, carrito y totales, resolutor de menú | pendiente |
+| M2 - Motor con LLM simulado | Contrato de acciones, atajos, política, FSM, plantillas, REPL; e2e deterministas | pendiente |
+| M3 - Persistencia e idempotencia | SQLite, dedupe, outbox, expiración/reanudación, reinicio seguro, logging con IDs | pendiente |
+| M4 - Telegram, restaurante, handoff, sombra | Adaptador Telegram, notificación a caja, relay humano, modo sombra | pendiente |
+| M5 - LLM real y observabilidad | Ollama + Qwen3 4B, OpenTelemetry + Phoenix, costos y tokens por pedido | pendiente |
+| M6 - Evaluación | Banco de conversaciones, comparación local vs hospedados, ADR de modelo | pendiente |
 
 ## Fase 2 — Piloto con WhatsApp y modelo hospedado
 
