@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Secretos y entorno local
+.env
+.env.*
+!.env.example
+
+# Datos reales: NUNCA se suben (chats reales, exports, casos anonimizados)
+data/private/
+!data/private/.gitkeep
+
+# Bases de datos locales y artefactos
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+var/
+
+# Reportes de evaluación (se versionan solo los resúmenes elegidos en eval/reports/published/)
+eval/reports/*
+!eval/reports/.gitkeep
+!eval/reports/published/
+
+# IDEs / SO
+.idea/
+.vscode/
+.DS_Store
