@@ -80,6 +80,9 @@ class Product(_Model):
 class Category(_Model):
     id: Identifier
     name: str = Field(min_length=1)
+    aliases: tuple[str, ...] = ()
+    """Generic words for the category ("cerveza", "gaseosa"). They never resolve to a single
+    product on their own; they produce a clarification listing the category's products."""
     products: tuple[Product, ...] = Field(min_length=1)
 
 

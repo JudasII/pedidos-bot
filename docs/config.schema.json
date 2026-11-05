@@ -48,6 +48,14 @@
           "title": "Name",
           "type": "string"
         },
+        "aliases": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Aliases",
+          "type": "array"
+        },
         "products": {
           "items": {
             "$ref": "#/$defs/Product"

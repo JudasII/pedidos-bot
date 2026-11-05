@@ -8,7 +8,13 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from pedidos_bot import __version__
-from pedidos_bot.config.loader import ConfigError, config_json_schema_text, load_config
+from pedidos_bot.config.loader import (
+    ConfigError,
+    config_json_schema_text,
+    load_config,
+    load_restaurant,
+)
+from pedidos_bot.engine.resolver import MenuResolver
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +31,13 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("paths", nargs="+", type=Path)
     schema = config_sub.add_parser("schema", help="print the configuration JSON Schema")
     schema.add_argument("--output", type=Path, help="write to a file instead of stdout")
+
+    resolve = sub.add_parser("resolve", help="debug the menu resolver with customer wording")
+    resolve.add_argument("--restaurant", required=True)
+    resolve.add_argument("--config-dir", type=Path, default=Path("config/restaurants"))
+    resolve.add_argument("--payment", action="store_true", help="resolve a payment method")
+    resolve.add_argument("text")
+    resolve.add_argument("modifiers", nargs="*")
     return parser
 
 
@@ -52,6 +65,30 @@ def _schema(output: Path | None) -> int:
     return 0
 
 
+def _resolve(args: argparse.Namespace) -> int:
+    try:
+        resolver = MenuResolver(load_restaurant(args.restaurant, args.config_dir))
+    except ConfigError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    if args.payment:
+        match = resolver.resolve_payment(args.text)
+        print(f"payment: {match.status} {[(c.id, c.score) for c in match.candidates]}")
+        return 0
+    item = resolver.resolve_item(args.text, args.modifiers)
+    product = item.product
+    print(
+        f"product: {product.status} via {product.method} "
+        f"{[(c.id, c.score) for c in product.candidates]}"
+    )
+    for match in item.modifiers:
+        print(
+            f"modifier {match.query!r}: {match.status} "
+            f"{[(c.group_id, c.id, c.score) for c in match.candidates]}"
+        )
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -59,6 +96,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.config_command == "validate":
             return _validate(args.paths)
         return _schema(args.output)
+    if args.command == "resolve":
+        return _resolve(args)
     parser.print_help()
     return 0
 

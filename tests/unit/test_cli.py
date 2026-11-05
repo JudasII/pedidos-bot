@@ -35,3 +35,17 @@ def test_config_validate_reports_failure(
     bad.write_text("restaurant: {}\n", encoding="utf-8")
     assert main(["config", "validate", str(bad)]) == 1
     assert "configuration error" in capsys.readouterr().err
+
+
+def test_resolve_command(capsys: pytest.CaptureFixture[str]) -> None:
+    root = Path(__file__).resolve().parents[2]
+    args = [
+        "resolve",
+        "--restaurant",
+        "burger_demo",
+        "--config-dir",
+        str(root / "config/restaurants"),
+    ]
+    assert main([*args, "malteda de fresa"]) == 0
+    out = capsys.readouterr().out
+    assert "product: resolved" in out and "sabor_fresa" in out

@@ -99,6 +99,7 @@ modifier_groups:
 categories:
   - id: hamburguesas
     name: Hamburguesas
+    aliases: [hamburguesa, burger, burguer]
     products:
       - id: hamburguesa_sencilla
         name: "Hamburguesa Sencilla"
@@ -151,6 +152,7 @@ categories:
         modifier_groups: [sabor_malteada]
   - id: bebidas
     name: Bebidas
+    aliases: [bebida, gaseosa, refresco, "algo de tomar"]
     products:
       - id: coca_cola
         name: "Coca-Cola"
@@ -173,6 +175,7 @@ categories:
         aliases: [agua, "botella de agua", "agua sin gas"]
   - id: cervezas
     name: Cervezas
+    aliases: [cerveza, pola, birra]
     products:
       - id: club_colombia
         name: "Club Colombia Dorada"
