@@ -1,6 +1,6 @@
 """Deterministic resolver: customer words -> menu, modifier and payment-method IDs.
 
-The LLM refers to products by the customer's own words ("una pizza grande", "piza
+The LLM refers to products by the customer's own words ("una pizza mediana", "piza
 hawayana"). This module maps those words to IDs from the restaurant config using aliases
 and fuzzy matching. It never guesses: low confidence or a near tie returns AMBIGUOUS with
 candidates so the bot can ask, and anything unknown returns NOT_FOUND.
@@ -22,6 +22,7 @@ import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from functools import cache
 
 from rapidfuzz import fuzz
 
@@ -63,10 +64,11 @@ _LEADING_FILLERS = frozenset(
         "porfa",
     ]
 )
-# Where leftover modifier text splits ("sin cebolla y con tocineta"). "sin" stays with its
-# piece, so "con queso sin tomate" yields both modifiers.
-_SPLIT_CONNECTORS = re.compile(r"\b(?:y|con)\b|,|(?=\bsin\b)")
+# Where leftover modifier text splits ("sin champiñones y con piña"). "sin" stays with its
+# piece, so "con champiñones sin aceitunas" yields both modifiers.
+_SPLIT_CONNECTORS = re.compile(r"\b(?:y|con)\b|(?=\bsin\b)")
 _LEADING_PIECE_FILLERS = frozenset({"de", "del", "la", "el", "en", "con"})
+_PAYMENT_FILLERS = frozenset({"en", "con", "por", "pago", "pagar"})
 
 
 class MatchStatus(StrEnum):
@@ -106,6 +108,12 @@ class Match:
 
 @dataclass(frozen=True)
 class ItemResolution:
+    """A product and its modifiers.
+
+    When `product` is AMBIGUOUS, `modifiers` are the ones the customer gave, resolved against
+    the first candidate. Resolve each `query` again once the product is chosen.
+    """
+
     product: Match
     modifiers: tuple[Match, ...] = ()
 
@@ -135,13 +143,23 @@ def _singular(token: str) -> str:
     return token[:-1] if len(token) > 3 and token.endswith("s") else token
 
 
-def _strip_leading(text: str, fillers: frozenset[str]) -> str:
-    """Drop leading filler words and numbers. `text` must already be normalized."""
-    fillers = frozenset(normalize(f) for f in fillers)
+@cache
+def _normalized(words: frozenset[str]) -> frozenset[str]:
+    return frozenset(normalize(word) for word in words)
+
+
+def _strip_leading(text: str, fillers: frozenset[str], *, numbers: bool = False) -> str:
+    """Drop leading filler words, and numbers if asked. `text` must already be normalized."""
+    normalized = _normalized(fillers)
     tokens = text.split()
-    while tokens and (tokens[0] in fillers or tokens[0].isdigit()):
+    while tokens and (tokens[0] in normalized or (numbers and tokens[0].isdigit())):
         tokens.pop(0)
     return " ".join(tokens)
+
+
+def _product_query(text: str) -> str:
+    """The part of `text` that names a product: a leading number there is a quantity."""
+    return _strip_leading(normalize(text), _LEADING_FILLERS, numbers=True)
 
 
 @dataclass(frozen=True)
@@ -171,8 +189,8 @@ class _Index:
         if entry not in bucket:
             bucket.append(entry)
 
-    def match(self, raw_query: str, *, strip: frozenset[str] = _LEADING_FILLERS) -> Match:
-        query = _strip_leading(normalize(raw_query), strip)
+    def match(self, raw_query: str, query: str) -> Match:
+        """Match `query`, the cleaned-up form of `raw_query`, against the entries."""
         if not query:
             return Match(MatchStatus.NOT_FOUND, raw_query, MatchMethod.NONE)
         exact = self._match_exact(raw_query, query)
@@ -219,6 +237,8 @@ class _Index:
 
     def _match_shared_word(self, raw: str, query: str) -> Match | None:
         """The query is part of the names of several entries, so it identifies none."""
+        if len(query) < 3 or query in _NEGATIONS:
+            return None
         padded = f" {query} "
         entries = [e for e in self.entries if any(padded in f" {s} " for s in e.surfaces)]
         if len(entries) < 2:
@@ -271,11 +291,18 @@ def _score(query: str, surface: str) -> float:
     # "pizza hawaiana") is a strong signal, but only when it covers a good part of it.
     if len(query) >= 5 and len(query) < len(surface) and len(query) >= 0.5 * len(surface):
         score = max(score, fuzz.partial_ratio(query, surface))
-    # "cebolla" must not silently resolve to "sin cebolla": a negation mismatch can at most
+    # "aceitunas" must not silently resolve to "sin aceitunas": a negation mismatch can at most
     # make the option a clarification candidate.
     if bool(_NEGATIONS & set(query.split())) != bool(_NEGATIONS & set(surface.split())):
         score = min(score, RESOLVE_SCORE - 1)
+    # Likewise a number the surface does not contain: "2 porciones" is not "8 porciones".
+    if _numbers(query) - _numbers(surface):
+        score = min(score, RESOLVE_SCORE - 1)
     return float(score)
+
+
+def _numbers(text: str) -> set[str]:
+    return {word for word in text.split() if word.isdigit()}
 
 
 def _score_with_window(query: str, surface: str) -> tuple[float, str]:
@@ -311,9 +338,9 @@ def _is_generic(word: str, generic: set[str]) -> bool:
     )
 
 
-def _matched_words(text: str, leftover: str) -> str:
-    """The words of `text` that the product match consumed, in order."""
-    words = _strip_leading(normalize(text), _LEADING_FILLERS).split()
+def _matched_words(query: str, leftover: str) -> str:
+    """The words of `query` that a match consumed, in order."""
+    words = query.split()
     for word in leftover.split():
         words.remove(word)
     return " ".join(words)
@@ -343,13 +370,14 @@ class MenuResolver:
 
     def resolve_product(self, text: str) -> Match:
         """Best product for `text`, ignoring leftover words. Orders go through `resolve_item`."""
-        return self._products.match(text)
+        return self._products.match(text, _product_query(text))
 
     def resolve_payment(self, text: str) -> Match:
-        return self._payments.match(text, strip=frozenset({"en", "con", "por", "pago", "pagar"}))
+        return self._payments.match(text, _strip_leading(normalize(text), _PAYMENT_FILLERS))
 
     def resolve_modifier(self, product_id: str, text: str) -> Match:
-        return self._modifier_index(product_id).match(text, strip=_LEADING_PIECE_FILLERS)
+        query = _strip_leading(normalize(text), _LEADING_PIECE_FILLERS)
+        return self._modifier_index(product_id).match(text, query)
 
     def resolve_item(self, text: str, modifier_texts: Iterable[str] = ()) -> ItemResolution:
         """Resolve a product plus its modifiers.
@@ -365,11 +393,13 @@ class MenuResolver:
         best = product.best
         if best is None:
             return ItemResolution(product=product)
-        explicit = list(modifier_texts)
+        explicit = [
+            piece for text_ in modifier_texts for piece in self._pieces(best.id, normalize(text_))
+        ]
         spanning = self._spanning_modifier(best.id, text, product.leftover)
         if spanning:
             return self._ask_product_for(best.id, text, spanning, explicit)
-        pieces = self._leftover_pieces(best.id, product.leftover)
+        pieces = self._pieces(best.id, product.leftover)
         rivals = self._rival_products(best.id, pieces)
         if rivals:
             return self._settle_rivals(text, product, explicit, pieces, rivals)
@@ -381,9 +411,10 @@ class MenuResolver:
 
         Those words cannot mean both things, so the product was not really named.
         """
-        query = f" {_strip_leading(normalize(text), _LEADING_FILLERS)} "
+        plain = _product_query(text)
+        query = f" {plain} "
         rest = f" {leftover} "
-        matched = set(_matched_words(text, leftover).split())
+        matched = set(_matched_words(plain, leftover).split())
         for entry in self._modifier_index(product_id).entries:
             for surface in entry.surfaces:
                 words = set(surface.split())
@@ -408,9 +439,8 @@ class MenuResolver:
             for p in siblings
             if p.available and self.resolve_modifier(p.id, surface).best == option.best
         )
-        query = _strip_leading(normalize(text), _LEADING_FILLERS)
-        rest = " ".join(f" {query} ".replace(f" {surface} ", " ", 1).split())
-        pieces = self._leftover_pieces(product_id, rest)
+        rest = " ".join(f" {_product_query(text)} ".replace(f" {surface} ", " ", 1).split())
+        pieces = self._pieces(product_id, rest)
         modifiers = tuple(self.resolve_modifier(product_id, p) for p in [*explicit, *pieces])
         return ItemResolution(
             product=Match(MatchStatus.AMBIGUOUS, text, MatchMethod.CONTAINS, candidates),
@@ -421,11 +451,13 @@ class MenuResolver:
         """Leftover pieces that are not modifiers of the product but do name another one."""
         rivals = {}
         for piece in pieces:
-            if self.resolve_modifier(product_id, piece).status is not MatchStatus.NOT_FOUND:
-                continue
-            if _NEGATIONS & set(piece.split()):
+            modifier = self.resolve_modifier(product_id, piece).status
+            if modifier is MatchStatus.RESOLVED or _NEGATIONS & set(piece.split()):
                 continue
             match = self.resolve_product(piece)
+            # A word that half fits this product only counts if it is exactly another one.
+            if modifier is MatchStatus.AMBIGUOUS and match.method is not MatchMethod.EXACT:
+                continue
             # A fuzzy near-miss is noise here; the piece stays an unresolved modifier.
             if match.status is MatchStatus.RESOLVED or (
                 match.status is MatchStatus.AMBIGUOUS and match.method is not MatchMethod.FUZZY
@@ -442,9 +474,9 @@ class MenuResolver:
         rivals: dict[str, Match],
     ) -> ItemResolution:
         """Take the only reading that explains every word, otherwise ask."""
-        matched = _matched_words(text, product.leftover)
+        query = _product_query(text)
+        matched = _matched_words(query, product.leftover)
         complete = []
-        query = _strip_leading(normalize(text), _LEADING_FILLERS)
         for piece, rival in rivals.items():
             # Modifiers follow their product, so only a product named first can claim them.
             if query.find(piece) > query.find(matched):
@@ -458,8 +490,11 @@ class MenuResolver:
             return complete[0]
         found = [*product.candidates, *(c for r in rivals.values() for c in r.candidates)]
         unique = tuple({c.id: c for c in found}.values())
+        best = product.candidates[0].id
+        kept = [*explicit, *(p for p in pieces if p not in rivals)]
         return ItemResolution(
-            product=Match(MatchStatus.AMBIGUOUS, text, MatchMethod.CONTAINS, unique)
+            product=Match(MatchStatus.AMBIGUOUS, text, MatchMethod.CONTAINS, unique),
+            modifiers=tuple(self.resolve_modifier(best, p) for p in kept),
         )
 
     def _reading(
@@ -470,22 +505,38 @@ class MenuResolver:
         modifiers = tuple(self.resolve_modifier(candidate.id, p) for p in pieces)
         return ItemResolution(product=product, modifiers=modifiers)
 
-    def _leftover_pieces(self, product_id: str, leftover: str) -> list[str]:
-        if not leftover:
+    def _pieces(self, product_id: str, text: str) -> list[str]:
+        """Split normalized modifier text into pieces of one modifier each."""
+        if not text:
             return []
-        product = self._menu.product(product_id)
-        category = self._menu.category_of(product_id)
-        generic: set[str] = set()
-        if product:
-            generic |= {w for s in _surfaces(product.name, product.aliases) for w in s.split()}
-        if category:
-            generic |= {w for s in _surfaces(category.name, category.aliases) for w in s.split()}
+        if self.resolve_modifier(product_id, text).method is MatchMethod.EXACT:
+            return [text]  # the alias may contain a connector
+        generic = self._generic_words(product_id)
         pieces = []
-        for raw_piece in _SPLIT_CONNECTORS.split(leftover):
+        for raw_piece in _SPLIT_CONNECTORS.split(text):
             piece = _strip_leading(raw_piece.strip(), _LEADING_PIECE_FILLERS)
             if piece and not all(_is_generic(word, generic) for word in piece.split()):
-                pieces.append(piece)
+                pieces.extend(self._single_modifiers(product_id, piece))
         return pieces
+
+    def _single_modifiers(self, product_id: str, piece: str) -> list[str]:
+        """Separate a modifier from words next to it, which must not be lost."""
+        match = self.resolve_modifier(product_id, piece)
+        if match.best is None or not match.leftover:
+            return [piece]
+        used = _matched_words(piece, match.leftover)
+        return [used, *self._pieces(product_id, match.leftover)]
+
+    def _generic_words(self, product_id: str) -> set[str]:
+        """Words that only repeat the product's name. Negated aliases say something else."""
+        product = self._menu.product(product_id)
+        category = self._menu.category_of(product_id)
+        surfaces: list[str] = []
+        if product:
+            surfaces += _surfaces(product.name, product.aliases)
+        if category:
+            surfaces += _surfaces(category.name, category.aliases)
+        return {w for s in surfaces if not _NEGATIONS & set(s.split()) for w in s.split()}
 
     def _modifier_index(self, product_id: str) -> _Index:
         if product_id not in self._modifiers:

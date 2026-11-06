@@ -77,7 +77,9 @@ def test_ambiguous_products_offer_candidates(text: str, expected: set[str]) -> N
     assert {c.id for c in match.candidates} == expected
 
 
-@pytest.mark.parametrize("text", ["pizza", "perro caliente", "sushi", "queso", "", "   ", "2"])
+@pytest.mark.parametrize(
+    "text", ["pizza", "perro caliente", "sushi", "queso", "", "   ", "2", "de", "sin"]
+)
 def test_unknown_products_are_rejected(text: str) -> None:
     assert BURGER.resolve_product(text).status is MatchStatus.NOT_FOUND
 
@@ -108,6 +110,16 @@ def test_unknown_products_are_rejected(text: str) -> None:
             "hamburguesa_sencilla",
             {"extra_tocineta", "sin_cebolla"},
         ),
+        ("doble sin tomate tocineta", [], "hamburguesa_doble", {"sin_tomate", "extra_tocineta"}),
+        (
+            "sencilla",
+            ["con tocineta y sin cebolla"],
+            "hamburguesa_sencilla",
+            {"extra_tocineta", "sin_cebolla"},
+        ),
+        ("coca 400", [], "coca_cola", {"gaseosa_personal"}),
+        ("coca 1.5", [], "coca_cola", {"gaseosa_litro_y_medio"}),
+        ("coca litro y medio", [], "coca_cola", {"gaseosa_litro_y_medio"}),
         ("hamburguesa sencilla", [], "hamburguesa_sencilla", set()),
         ("chiken tenders", ["bbq"], "chicken_tenders", {"salsa_bbq"}),
     ],
@@ -152,6 +164,8 @@ def test_word_that_is_a_modifier_of_the_other_product(
             {"hamburguesa_sencilla", "club_colombia", "aguila", "corona"},
         ),
         ("sencilla con coca y papas", {"hamburguesa_sencilla", "coca_cola", "papas_fritas"}),
+        ("sencilla con tocineta papas", {"hamburguesa_sencilla", "papas_fritas"}),
+        ("una doble y una sencilla", {"hamburguesa_sencilla", "hamburguesa_doble"}),
     ],
 )
 def test_two_products_in_one_item_are_ambiguous(text: str, expected: set[str]) -> None:
@@ -170,6 +184,11 @@ def test_two_products_in_one_item_are_ambiguous(text: str, expected: set[str]) -
         # Words that name no product are reported as modifiers, never turned into a rival.
         ("coca cola zero bien fria", "coca_cola_zero", set(), 1),
         ("sencilla sin coca", "hamburguesa_sencilla", set(), 1),
+        # "gas" is in an alias of the product, but that alias says the opposite.
+        ("agua con gas", "agua", set(), 1),
+        # A number the menu does not offer is reported, never rounded to the closest size.
+        ("coca 2 litros", "coca_cola", set(), 1),
+        ("sencilla con 2 huevos", "hamburguesa_sencilla", {"extra_huevo"}, 1),
     ],
 )
 def test_leftover_words_that_do_not_change_the_product(
@@ -202,6 +221,21 @@ def test_modifier_that_contains_a_product_alias_asks_which_product(
     }
     # The customer's extra must survive the clarifying question.
     assert [c.option_id for c in item.choices] == [expected]
+
+
+@pytest.mark.parametrize(
+    ("text", "modifiers", "expected"),
+    [
+        ("sencilla sin cebolla con papas", [], {"sin_cebolla"}),
+        ("sencilla con coca", ["sin cebolla"], {"sin_cebolla"}),
+    ],
+)
+def test_two_products_keep_the_modifiers_for_the_clarification(
+    text: str, modifiers: list[str], expected: set[str]
+) -> None:
+    item = BURGER.resolve_item(text, modifiers)
+    assert item.product.status is MatchStatus.AMBIGUOUS
+    assert {c.option_id for c in item.choices} == expected
 
 
 def test_ambiguous_modifier_keeps_the_product() -> None:
