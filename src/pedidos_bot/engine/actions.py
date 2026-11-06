@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 
 class _Action(BaseModel):
@@ -48,7 +48,7 @@ class SetFulfillment(_Action):
 
 class SetAddress(_Action):
     type: Literal["set_address"] = "set_address"
-    address: str = Field(min_length=1)
+    address: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     details: str = ""
 
 

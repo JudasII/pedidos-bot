@@ -26,12 +26,21 @@ class ProductClarification(_Model):
 
 
 class ModifierClarification(_Model):
-    """A line waiting for the customer to say which option."""
+    """An item waiting for the customer to say which option.
+
+    The item stays out of the cart until then: added earlier, it could merge with an identical
+    line, and the answer would change units the customer never mentioned.
+    """
 
     kind: Literal["modifier"] = "modifier"
-    line_id: int
     product_id: str
     candidates: tuple[ModifierChoice, ...]
+    quantity: int = 1
+    chosen: tuple[ModifierChoice, ...] = ()
+    """Options already settled for this item."""
+    modifiers: tuple[str, ...] = ()
+    """Modifier texts still to be resolved."""
+    note: str = ""
 
 
 Clarification = Annotated[ProductClarification | ModifierClarification, Field(discriminator="kind")]
@@ -42,6 +51,8 @@ class Conversation(_Model):
     chat_ref: str
     lifecycle: Lifecycle = Lifecycle()
     cart: Cart = Cart()
+    follows_confirmed: bool = False
+    """The previous order of this chat was confirmed, so "cancel" may be about that one."""
     greeted: bool = False
     items_done: bool = False
     """The customer finished adding items."""

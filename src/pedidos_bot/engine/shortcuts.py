@@ -40,6 +40,8 @@ _DENY = _phrases(
     "no", "nop", "nel", "no gracias", "no señor", "no señora", "nada", "nada más",
     "eso es todo", "sería todo", "ya no más", "no más",
 )  # fmt: skip
+_DONE_ADDING = _phrases("listo", "listo pues", "así está bien", "todo bien")
+"""Confirmations that also mean "nothing more", unlike a plain "sí"."""
 _CANCEL = _phrases(
     "cancelar", "cancela", "cancelalo", "cancela todo", "cancelar pedido", "cancela el pedido",
     "ya no quiero", "ya no quiero nada", "olvídalo", "olvidalo mejor", "déjalo así",
@@ -56,6 +58,10 @@ _CONFIRM_EMOJI = frozenset("👍👌✅")
 
 def is_confirm(text: str) -> bool:
     return _key(text) in _CONFIRM or (bool(text) and set(text) <= _CONFIRM_EMOJI)
+
+
+def is_done_adding(text: str) -> bool:
+    return _key(text) in _DONE_ADDING
 
 
 def is_deny(text: str) -> bool:

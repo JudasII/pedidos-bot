@@ -8,12 +8,13 @@ import pytest
 from pedidos_bot.channels.base import ChannelCapabilities, MessageKind
 from pedidos_bot.config.loader import load_restaurant
 from pedidos_bot.config.schema import RestaurantConfig
-from pedidos_bot.engine.actions import AddItem, Confirm, UpdateItem
+from pedidos_bot.engine.actions import AddItem, Confirm, RemoveItem, UpdateItem
 from pedidos_bot.engine.conversation import Conversation
 from pedidos_bot.engine.lifecycle import LifecycleState as S
 from pedidos_bot.engine.policy import Step
 from pedidos_bot.llm.fake import ScriptedLLM
 from tests.e2e.harness import Chat
+from tests.factories import config_dict, make_config
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "config" / "restaurants"
 BURGER = load_restaurant("burger_demo", CONFIG_DIR)
@@ -384,6 +385,162 @@ async def test_an_unclear_answer_to_the_address_question_is_the_address() -> Non
     await chat.say("donde doña Marta frente al parque")
     cart = chat.conversation.cart
     assert cart.address is not None and cart.address.text.startswith("donde doña Marta")
+
+
+async def test_cancelling_a_confirmed_order_goes_to_a_person() -> None:
+    chat = Chat(MINIMAL)
+    await _to_confirmation(chat, SCENARIOS[1])
+    await chat.say("sí")
+    reply = await chat.say("cancelar")
+    assert "ya está confirmado" in reply
+    assert "cancelado" not in reply
+    assert chat.state is S.HANDOFF
+
+
+async def test_cancelling_a_new_order_after_a_confirmed_one_is_normal() -> None:
+    chat = Chat(MINIMAL)
+    await _to_confirmation(chat, SCENARIOS[1])
+    await chat.say("sí")
+    await chat.say("un suizo")
+    await chat.say("cancelar")
+    assert chat.state is S.CANCELLED
+
+
+async def test_clarifying_a_modifier_never_touches_an_identical_line() -> None:
+    chat = Chat(BURGER)
+    await chat.say("una sencilla")
+    await chat.say("una sencilla con cebolla")
+    await chat.say("sin cebolla")
+    assert chat.lines == [
+        ("hamburguesa_sencilla", 1, set()),
+        ("hamburguesa_sencilla", 1, {"sin_cebolla"}),
+    ]
+
+
+async def test_two_unclear_modifiers_are_asked_one_at_a_time() -> None:
+    chat = Chat(
+        BURGER, ScriptedLLM([[AddItem(product="sencilla", modifiers=("cebolla", "carne"))]])
+    )
+    await chat.say("una sencilla con cebolla y carne")
+    await chat.say("caramelizada")
+    assert chat.lines == [
+        ("hamburguesa_sencilla", 1, {"extra_cebolla_caramelizada", "extra_carne"})
+    ]
+
+
+async def test_an_answer_with_more_in_it_keeps_the_rest() -> None:
+    chat = Chat(BURGER)
+    await chat.say("una malteada")
+    await chat.say("fresa y unas papas")
+    assert "papas_fritas" in [line[0] for line in chat.lines]
+    assert ("malteada", 1, {"sabor_fresa"}) not in chat.lines
+    await chat.say("no")  # the fake reads "fresa" as a possible product: not that one
+    assert chat.conversation.asked is Step.REQUIRED_CHOICE
+
+
+async def test_a_single_candidate_product_is_a_yes_or_no_question() -> None:
+    chat = Chat(BURGER, ScriptedLLM([[AddItem(product="fresa", quantity=2)]]))
+    assert "¿Te refieres a Papas Fritas?" in await chat.say("2 fresas")
+    await chat.say("sí")
+    assert [line[:2] for line in chat.lines] == [("papas_fritas", 2)]
+
+
+async def test_an_answer_to_which_product_with_more_in_it_keeps_the_rest() -> None:
+    chat = Chat(BURGER)
+    await chat.say("2 cervezas")
+    await chat.say("corona y una coca")
+    assert "coca_cola" in [line[0] for line in chat.lines]
+    assert chat.conversation.clarifications != ()
+
+
+@pytest.mark.parametrize("answer", ["sí", "dale"])
+async def test_yes_to_anything_else_means_there_is_more(answer: str) -> None:
+    chat = Chat(BURGER)
+    await chat.say("una sencilla")
+    assert "¿Qué más te anoto?" in await chat.say(answer)
+    assert "domicilio" in await chat.say("no")
+
+
+@pytest.mark.parametrize("answer", ["listo", "no", "eso es todo"])
+async def test_finishing_the_order(answer: str) -> None:
+    chat = Chat(BURGER)
+    await chat.say("una sencilla")
+    assert "domicilio" in await chat.say(answer)
+
+
+async def test_a_message_with_a_number_is_not_the_cash_amount() -> None:
+    chat = Chat(BURGER)
+    for text in ("una sencilla", "no", "para recoger", "efectivo"):
+        await chat.say(text)
+    await chat.say("quiero 2 cocas")
+    payment = chat.conversation.cart.payment
+    assert payment is not None and payment.cash_change_for is None
+    assert ("coca_cola", 2, set()) in chat.lines
+
+
+async def test_a_blank_answer_to_the_address_question_is_not_an_address() -> None:
+    chat = Chat(BURGER)
+    for text in ("una doble", "no", "domicilio"):
+        await chat.say(text)
+    assert "dirección" in await chat.say("   ")
+    assert chat.conversation.cart.address is None
+
+
+async def test_a_blank_address_from_the_model_is_retried() -> None:
+    blank = '{"actions": [{"type": "set_address", "address": "   ", "details": ""}]}'
+    chat = Chat(BURGER, ScriptedLLM([blank, [AddItem(product="agua")]]))
+    await chat.say("algo")
+    assert chat.lines == [("agua", 1, set())]
+
+
+async def test_a_digit_that_is_not_a_number_does_not_crash() -> None:
+    chat = Chat(BURGER)
+    await chat.say("una malteada")
+    assert await chat.say("²")
+    assert chat.state is S.ORDERING
+
+
+async def test_removing_some_of_an_unavailable_product_is_refused_politely() -> None:
+    data = config_dict()
+    chat = Chat(
+        make_config(**data),
+        ScriptedLLM(
+            [
+                [AddItem(product="clasica", quantity=3)],
+            ]
+        ),
+    )
+    await chat.say("3 clasicas")
+    data["categories"][0]["products"][0]["available"] = False
+    changed = Chat(make_config(**data), ScriptedLLM([[RemoveItem(product="clasica", quantity=1)]]))
+    changed.repository.conversations = chat.repository.conversations
+    await changed.say("quita una")
+    assert changed.lines == chat.lines
+
+
+async def test_a_rejected_change_does_not_pull_the_order_back_from_staff() -> None:
+    llm = ScriptedLLM([[AddItem(product="sencilla")], [AddItem(product="sushi")]])
+    chat = Chat(BURGER, llm)
+    for text in ("una sencilla", "no", "para recoger", "nequi", "sí"):
+        await chat.say(text)
+    assert "sushi" in await chat.say("un sushi")
+    assert chat.state is S.PENDING_STAFF_CONFIRMATION
+
+
+async def test_a_clarification_during_confirmation_still_returns_to_ordering() -> None:
+    chat = Chat(BURGER)
+    await _to_confirmation(chat, SCENARIOS[0])
+    await chat.say("una cerveza")
+    assert chat.state is S.ORDERING
+    await chat.say("corona")
+    assert chat.state is S.AWAITING_CONFIRMATION
+
+
+async def test_asking_for_things_not_on_the_menu_does_not_escalate() -> None:
+    chat = Chat(BURGER, ScriptedLLM([[AddItem(product="sushi")], [AddItem(product="pizza")]]))
+    await chat.say("un sushi")
+    await chat.say("una pizza")
+    assert chat.state is S.ORDERING
 
 
 @both

@@ -60,7 +60,9 @@ class ConversationService:
             return TurnResult(conversation, reply)
         if conversation.lifecycle.is_terminal:
             conversation = Conversation(
-                channel=conversation.channel, chat_ref=conversation.chat_ref
+                channel=conversation.channel,
+                chat_ref=conversation.chat_ref,
+                follows_confirmed=state is LifecycleState.CONFIRMED,
             )
         inbound = _read_numbered_option(inbound, conversation)
         turn = Turn(conversation, self._config, self._resolver, self._responder)
@@ -84,7 +86,7 @@ def _read_numbered_option(inbound: InboundMessage, conversation: Conversation) -
     """Map "2" to the second option offered, for channels that showed a numbered list."""
     text = inbound.content
     options = conversation.options
-    if inbound.kind is MessageKind.TEXT and text.isdigit() and 1 <= int(text) <= len(options):
+    if inbound.kind is MessageKind.TEXT and text.isdecimal() and 1 <= int(text) <= len(options):
         return inbound.model_copy(update={"text": options[int(text) - 1]})
     return inbound
 
@@ -93,6 +95,7 @@ def _with_address_fallback(
     actions: tuple[Action, ...], conversation: Conversation, text: str
 ) -> tuple[Action, ...]:
     """Addresses have no fixed form: if we asked for one, an unclear answer is the address."""
-    if conversation.asked is Step.ADDRESS and all(isinstance(a, Unknown) for a in actions):
+    unclear = all(isinstance(a, Unknown) for a in actions)
+    if conversation.asked is Step.ADDRESS and unclear and text:
         return (SetAddress(address=text),)
     return actions

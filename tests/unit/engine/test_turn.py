@@ -15,6 +15,8 @@ from pedidos_bot.engine.turn import parse_amount
         ("100k", 100000),
         ("un billete de 20.000", 20000),
         ("exacto", None),
+        ("quiero 2 cocas", None),
+        ("mejor 3 sencillas y 50 mil", None),
         ("", None),
     ],
 )

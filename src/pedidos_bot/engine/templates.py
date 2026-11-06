@@ -13,6 +13,7 @@ class Msg(StrEnum):
     UPDATED = "updated"
     PRODUCT_NOT_FOUND = "product_not_found"
     PRODUCT_CHOICE = "product_choice"
+    PRODUCT_YES_NO = "product_yes_no"
     MODIFIER_CHOICE = "modifier_choice"
     MODIFIER_YES_NO = "modifier_yes_no"
     MODIFIER_NOT_FOUND = "modifier_not_found"
@@ -24,6 +25,7 @@ class Msg(StrEnum):
     ASK_ITEMS = "ask_items"
     ASK_CHOICE = "ask_choice"
     ANYTHING_ELSE = "anything_else"
+    ASK_MORE = "ask_more"
     UPSELL = "upsell"
     ASK_FULFILLMENT = "ask_fulfillment"
     ASK_ADDRESS = "ask_address"
@@ -58,6 +60,7 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.UPDATED: "Listo, quedó así: {item}.",
         Msg.PRODUCT_NOT_FOUND: "No encontré “{text}” en el menú.",
         Msg.PRODUCT_CHOICE: "¿Cuál quieres: {options}?",
+        Msg.PRODUCT_YES_NO: "¿Te refieres a {product}?",
         Msg.MODIFIER_CHOICE: "Para {product}, ¿cuál quieres: {options}?",
         Msg.MODIFIER_YES_NO: "Para {product}, ¿te refieres a {option}?",
         Msg.MODIFIER_NOT_FOUND: "No pude ponerle “{text}” a {product}.",
@@ -69,6 +72,7 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.ASK_ITEMS: "¿Qué te provoca?",
         Msg.ASK_CHOICE: "¿Qué {group} quieres para {product}?",
         Msg.ANYTHING_ELSE: "¿Algo más?",
+        Msg.ASK_MORE: "¿Qué más te anoto?",
         Msg.UPSELL: "¿Le sumamos algo de {options}?",
         Msg.ASK_FULFILLMENT: "¿Lo quieres a domicilio o pasas a recoger?",
         Msg.ASK_ADDRESS: "¿A qué dirección te lo mandamos?",
@@ -101,6 +105,7 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.UPDATED: "Con gusto, quedó así: {item}.",
         Msg.PRODUCT_NOT_FOUND: "No encontré “{text}” en el menú.",
         Msg.PRODUCT_CHOICE: "¿Cuál desea: {options}?",
+        Msg.PRODUCT_YES_NO: "¿Se refiere a {product}?",
         Msg.MODIFIER_CHOICE: "Para {product}, ¿cuál desea: {options}?",
         Msg.MODIFIER_YES_NO: "Para {product}, ¿se refiere a {option}?",
         Msg.MODIFIER_NOT_FOUND: "No fue posible agregar “{text}” a {product}.",
@@ -112,6 +117,7 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.ASK_ITEMS: "¿Qué desea ordenar?",
         Msg.ASK_CHOICE: "¿Qué {group} desea para {product}?",
         Msg.ANYTHING_ELSE: "¿Desea algo más?",
+        Msg.ASK_MORE: "¿Qué más desea agregar?",
         Msg.UPSELL: "¿Desea agregar algo de {options}?",
         Msg.ASK_FULFILLMENT: "¿Lo desea a domicilio o pasa a recoger?",
         Msg.ASK_ADDRESS: "¿A qué dirección lo enviamos?",

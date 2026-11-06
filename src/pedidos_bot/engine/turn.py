@@ -39,21 +39,20 @@ from pedidos_bot.engine.lifecycle import Event, LifecycleState
 from pedidos_bot.engine.policy import NextStep, Step, next_step
 from pedidos_bot.engine.resolver import Match, MatchStatus, MenuResolver
 from pedidos_bot.engine.responder import Responder, join_options
-from pedidos_bot.engine.shortcuts import is_confirm, is_deny
+from pedidos_bot.engine.shortcuts import is_confirm, is_deny, is_done_adding
 from pedidos_bot.engine.templates import Msg
 
 MAX_MISUNDERSTOOD = 2
 """Consecutive turns without understanding before a person takes over."""
 
-_CART_ACTIONS = (AddItem, RemoveItem, UpdateItem, SetFulfillment, SetAddress, SetPayment)
 _SLOT_ACTIONS = (SetFulfillment, SetAddress, SetPayment)
-_AMOUNT = re.compile(r"(\d[\d.,]*)\s*(mil|k)?\b")
+_AMOUNT = re.compile(r"(?:(?:pago )?con |un billete de |de )?\$?\s*(\d[\d.,]*)\s*(mil|k)?")
 _EXACT_CASH = re.compile(r"\b(exacto|exacta|justo|completo|sencillo)\b")
 
 
 def parse_amount(text: str) -> int | None:
     """A cash amount in the ways people write it: 50000, 50.000, $50.000, 50 mil, 50k."""
-    match = _AMOUNT.search(text.lower())
+    match = _AMOUNT.fullmatch(text.lower().strip())
     if match is None:
         return None
     digits = re.sub(r"\D", "", match.group(1))
@@ -77,6 +76,7 @@ class Turn:
         self._final: str | None = None
         self._understood = False
         self._cart_changed = False
+        self._asking_for_more = False
 
     @property
     def _cart(self) -> Cart:
@@ -94,7 +94,9 @@ class Turn:
         self._understood = True
 
     def _note(self, key: Msg, **params: str) -> None:
+        """Tell the customer something. Having an answer for them means we understood."""
         self._notes.append(self._responder.text(key, **params))
+        self._understood = True
 
     # --- answers to the question just asked -----------------------------------------------
 
@@ -102,6 +104,10 @@ class Turn:
         """Read `text` as the answer to what was asked. False if it isn't one."""
         pending = self.conversation.clarifications
         if pending and self._answer_clarification(pending[0], text):
+            return True
+        if self.conversation.asked is Step.ANYTHING_ELSE and is_done_adding(text):
+            self._update(items_done=True)
+            self._understood = True
             return True
         if self.conversation.asked is Step.REQUIRED_CHOICE:
             return self._answer_required_choice(text)
@@ -116,6 +122,8 @@ class Turn:
     def _answer_clarification(self, head: Clarification, text: str) -> bool:
         if is_deny(text):
             self._pop_clarification()
+            if isinstance(head, ModifierClarification):
+                self._add_clarified(head)
             return True
         if isinstance(head, ProductClarification):
             return self._answer_product(head, text)
@@ -123,9 +131,11 @@ class Turn:
 
     def _answer_product(self, head: ProductClarification, text: str) -> bool:
         item = self._resolver.resolve_item(text)
-        ids = [c.id for c in item.product.candidates if c.id in head.candidates]
-        if len(ids) != 1:
-            return False
+        ids = [c.id for c in item.product.candidates]
+        if len(head.candidates) == 1 and is_confirm(text):
+            ids = list(head.candidates)
+        elif len(ids) != 1 or ids[0] not in head.candidates:
+            return False  # it may be another request, so its words must not be lost
         self._pop_clarification()
         queries = [*head.modifiers, *(m.query for m in item.modifiers)]
         modifiers = [self._resolver.resolve_modifier(ids[0], q) for q in queries]
@@ -139,19 +149,27 @@ class Turn:
             match = self._resolver.resolve_modifier(head.product_id, text)
             ids = [c.id for c in match.candidates]
             options = [c for c in head.candidates if c.option_id in ids]
-            if len(options) != 1:
+            if len(options) != 1 or match.leftover:
                 return False
             choice = options[0]
         self._pop_clarification()
-        self._add_modifier(head.line_id, head.product_id, choice)
+        self._add_clarified(head, choice)
         return True
+
+    def _add_clarified(
+        self, head: ModifierClarification, choice: ModifierChoice | None = None
+    ) -> None:
+        modifiers = [self._resolver.resolve_modifier(head.product_id, q) for q in head.modifiers]
+        chosen = (*head.chosen, choice) if choice else head.chosen
+        self._add_line(head.product_id, head.quantity, modifiers, head.note, chosen)
 
     def _answer_required_choice(self, text: str) -> bool:
         asked = self.conversation.asked_choice
         if asked is None:
             return False
-        best = self._resolver.resolve_modifier(asked.product_id, text).best
-        if best is None or best.group_id != asked.group_id:
+        match = self._resolver.resolve_modifier(asked.product_id, text)
+        best = match.best
+        if best is None or best.group_id != asked.group_id or match.leftover:
             return False
         choice = ModifierChoice(group_id=asked.group_id, option_id=best.id)
         self._add_modifier(asked.line_id, asked.product_id, choice)
@@ -176,24 +194,31 @@ class Turn:
     def apply(self, actions: Sequence[Action]) -> None:
         """Apply the turn's actions. Leaving the order wins; the customer's decision goes last."""
         if any(isinstance(a, CancelOrder) for a in actions):
-            self._event(Event.CANCEL)
-            self._final = self._responder.text(Msg.CANCELLED)
+            self._cancel()
             return
         if any(isinstance(a, AskHuman) for a in actions):
             self._start_handoff()
             return
-        lifecycle = self.conversation.lifecycle
-        if any(isinstance(a, _CART_ACTIONS) for a in actions) and lifecycle.can(
-            Event.CHANGE_REQUESTED
-        ):
-            self._event(Event.CHANGE_REQUESTED)
+        owed = len(self.conversation.clarifications)
         for action in actions:
             self._apply_one(action)
+        reopened = self._cart_changed or len(self.conversation.clarifications) > owed
+        if reopened and self.conversation.lifecycle.can(Event.CHANGE_REQUESTED):
+            self._event(Event.CHANGE_REQUESTED)
         if self._cart.lines and any(isinstance(a, _SLOT_ACTIONS) for a in actions):
             self._update(items_done=True)
         decisions = [a for a in actions if isinstance(a, Confirm | Deny)]
         if decisions and not self._cart_changed:
             self._decide(confirmed=isinstance(decisions[-1], Confirm))
+
+    def _cancel(self) -> None:
+        if self.conversation.follows_confirmed and not self._cart.lines:
+            # The bot can't undo a confirmed order, and must not claim it did.
+            self._note(Msg.ALREADY_CONFIRMED)
+            self._start_handoff()
+            return
+        self._event(Event.CANCEL)
+        self._final = self._responder.text(Msg.CANCELLED)
 
     def _start_handoff(self) -> None:
         self._event(Event.HANDOFF_REQUESTED)
@@ -240,14 +265,41 @@ class Turn:
         self._understood = True
 
     def _add_line(
-        self, product_id: str, quantity: int, modifiers: Iterable[Match], note: str
+        self,
+        product_id: str,
+        quantity: int,
+        modifiers: Iterable[Match],
+        note: str,
+        chosen: Sequence[ModifierChoice] = (),
     ) -> None:
         matches = tuple(modifiers)
         choices = [
-            ModifierChoice(group_id=m.best.group_id, option_id=m.best.id)
-            for m in matches
-            if m.best is not None and m.best.group_id is not None
+            *chosen,
+            *(
+                ModifierChoice(group_id=m.best.group_id, option_id=m.best.id)
+                for m in matches
+                if m.best is not None and m.best.group_id is not None
+            ),
         ]
+        unclear = next((m for m in matches if m.status is MatchStatus.AMBIGUOUS), None)
+        if unclear is not None:
+            self._queue(
+                ModifierClarification(
+                    product_id=product_id,
+                    candidates=tuple(
+                        ModifierChoice(group_id=c.group_id, option_id=c.id)
+                        for c in unclear.candidates
+                        if c.group_id is not None
+                    ),
+                    quantity=quantity,
+                    chosen=tuple(choices),
+                    modifiers=tuple(
+                        m.query for m in matches if m is not unclear and m.best is None
+                    ),
+                    note=note,
+                )
+            )
+            return
         try:
             cart, line = carts.add_item(
                 self._cart, self._config, product_id, quantity, choices, note
@@ -258,23 +310,10 @@ class Turn:
             return
         self._set_cart(cart)
         self._added.append(self._responder.line(line))
+        name = self._responder.product_name(product_id)
         for match in matches:
-            if match.status is not MatchStatus.RESOLVED:
-                self._flag_modifier(line, match)
-
-    def _flag_modifier(self, line: CartLine, match: Match) -> None:
-        if match.status is MatchStatus.AMBIGUOUS:
-            candidates = tuple(
-                ModifierChoice(group_id=c.group_id, option_id=c.id)
-                for c in match.candidates
-                if c.group_id is not None
-            )
-            self._queue(ModifierClarification(
-                line_id=line.line_id, product_id=line.product_id, candidates=candidates
-            ))  # fmt: skip
-        else:
-            name = self._responder.product_name(line.product_id)
-            self._note(Msg.MODIFIER_NOT_FOUND, text=match.query, product=name)
+            if match.status is MatchStatus.NOT_FOUND:
+                self._note(Msg.MODIFIER_NOT_FOUND, text=match.query, product=name)
 
     def _add_modifier(self, line_id: int, product_id: str, choice: ModifierChoice) -> None:
         try:
@@ -298,7 +337,6 @@ class Turn:
             return lines[0]
         if lines:
             self._note(Msg.LINE_UNCLEAR, product=self._responder.product_name(lines[0].product_id))
-            self._understood = True
         else:
             self._note(Msg.NOT_IN_CART, text=text)
         return None
@@ -411,7 +449,10 @@ class Turn:
                 self._final = self._responder.text(Msg.CONFIRMED, eta=eta)
         elif self.conversation.asked is Step.ANYTHING_ELSE:
             self._understood = True
-            self._update(items_done=True)
+            if confirmed:
+                self._asking_for_more = True  # "sí" to "anything else?" means there is more
+            else:
+                self._update(items_done=True)
 
     # --- reply ----------------------------------------------------------------------------
 
@@ -444,6 +485,8 @@ class Turn:
         if self.conversation.clarifications:
             self._update(asked=None, asked_choice=None)
             return self._clarifying_question(self.conversation.clarifications[0])
+        if self._asking_for_more:
+            return self._responder.text(Msg.ASK_MORE), ()
         step = next_step(
             self._cart,
             self._config,
@@ -458,6 +501,8 @@ class Turn:
         responder = self._responder
         if isinstance(head, ProductClarification):
             names = [responder.product_name(c) for c in head.candidates]
+            if len(names) == 1:
+                return responder.text(Msg.PRODUCT_YES_NO, product=names[0]), responder.yes_no()
             text = responder.text(Msg.PRODUCT_CHOICE, options=join_options(names))
             return text, responder.replies(names)
         product = responder.product_name(head.product_id)
