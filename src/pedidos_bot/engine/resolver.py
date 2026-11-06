@@ -9,6 +9,10 @@ Matching runs in three passes, stopping at the first that yields a result:
 1. exact match against a normalized alias, name or label;
 2. containment: the longest alias appearing as whole words inside the query;
 3. fuzzy scoring (rapidfuzz) with a resolve threshold and a minimum gap to the runner-up.
+
+Those passes judge one alias at a time. `MenuResolver.resolve_item` then checks the whole
+phrase: if leftover words name another product, or a modifier alias uses the words taken as
+the product, the phrase is only RESOLVED when a single reading explains every word.
 """
 
 from __future__ import annotations
@@ -59,8 +63,9 @@ _LEADING_FILLERS = frozenset(
         "porfa",
     ]
 )
-# Connectors used to split leftover modifier text ("sin cebolla y con tocineta").
-_SPLIT_CONNECTORS = re.compile(r"\b(?:y|con|,)\b|,")
+# Where leftover modifier text splits ("sin cebolla y con tocineta"). "sin" stays with its
+# piece, so "con queso sin tomate" yields both modifiers.
+_SPLIT_CONNECTORS = re.compile(r"\b(?:y|con)\b|,|(?=\bsin\b)")
 _LEADING_PIECE_FILLERS = frozenset({"de", "del", "la", "el", "en", "con"})
 
 
@@ -176,6 +181,9 @@ class _Index:
         contained = self._match_contained(raw_query, query)
         if contained is not None and contained.status is MatchStatus.RESOLVED:
             return contained
+        shared = self._match_shared_word(raw_query, query)
+        if contained is None and shared is not None:
+            return shared
         fuzzy = self._match_fuzzy(raw_query, query)
         if fuzzy.status is MatchStatus.RESOLVED or contained is None:
             return fuzzy
@@ -208,6 +216,15 @@ class _Index:
         surface = next(iter(hits.values()))
         leftover = " ".join(padded.replace(f" {surface} ", " ", 1).split())
         return Match(MatchStatus.RESOLVED, raw, MatchMethod.CONTAINS, candidates, leftover)
+
+    def _match_shared_word(self, raw: str, query: str) -> Match | None:
+        """The query is part of the names of several entries, so it identifies none."""
+        padded = f" {query} "
+        entries = [e for e in self.entries if any(padded in f" {s} " for s in e.surfaces)]
+        if len(entries) < 2:
+            return None
+        candidates = tuple(_candidate(e, 100.0) for e in entries)
+        return Match(MatchStatus.AMBIGUOUS, raw, MatchMethod.CONTAINS, candidates)
 
     def _match_fuzzy(self, raw: str, query: str) -> Match:
         scored: list[tuple[float, _Entry, str]] = []
@@ -294,6 +311,14 @@ def _is_generic(word: str, generic: set[str]) -> bool:
     )
 
 
+def _matched_words(text: str, leftover: str) -> str:
+    """The words of `text` that the product match consumed, in order."""
+    words = _strip_leading(normalize(text), _LEADING_FILLERS).split()
+    for word in leftover.split():
+        words.remove(word)
+    return " ".join(words)
+
+
 class MenuResolver:
     """Resolves customer wording against one restaurant's configuration."""
 
@@ -317,6 +342,7 @@ class MenuResolver:
         self._modifiers: dict[str, _Index] = {}
 
     def resolve_product(self, text: str) -> Match:
+        """Best product for `text`, ignoring leftover words. Orders go through `resolve_item`."""
         return self._products.match(text)
 
     def resolve_payment(self, text: str) -> Match:
@@ -330,14 +356,118 @@ class MenuResolver:
 
         Modifiers come from `modifier_texts` and from leftover words of the product text
         (e.g. "pizza con champiñones" -> product `pizza`, leftover "con champiñones").
+
+        The whole phrase has to make sense, not only the best alias in it: a leftover word
+        that names another product means the first reading may be wrong. The other reading
+        is taken when it explains every word.
         """
         product = self.resolve_product(text)
         best = product.best
         if best is None:
             return ItemResolution(product=product)
-        pieces = list(modifier_texts)
-        pieces.extend(self._leftover_pieces(best.id, product.leftover))
-        modifiers = tuple(self.resolve_modifier(best.id, piece) for piece in pieces)
+        explicit = list(modifier_texts)
+        spanning = self._spanning_modifier(best.id, text, product.leftover)
+        if spanning:
+            return self._ask_product_for(best.id, text, spanning, explicit)
+        pieces = self._leftover_pieces(best.id, product.leftover)
+        rivals = self._rival_products(best.id, pieces)
+        if rivals:
+            return self._settle_rivals(text, product, explicit, pieces, rivals)
+        modifiers = tuple(self.resolve_modifier(best.id, p) for p in [*explicit, *pieces])
+        return ItemResolution(product=product, modifiers=modifiers)
+
+    def _spanning_modifier(self, product_id: str, text: str, leftover: str) -> str | None:
+        """A modifier alias that uses words the product match consumed, if any.
+
+        Those words cannot mean both things, so the product was not really named.
+        """
+        query = f" {_strip_leading(normalize(text), _LEADING_FILLERS)} "
+        rest = f" {leftover} "
+        matched = set(_matched_words(text, leftover).split())
+        for entry in self._modifier_index(product_id).entries:
+            for surface in entry.surfaces:
+                words = set(surface.split())
+                if (
+                    f" {surface} " in query
+                    and f" {surface} " not in rest
+                    and words & matched
+                    and not words <= matched
+                ):
+                    return surface
+        return None
+
+    def _ask_product_for(
+        self, product_id: str, text: str, surface: str, explicit: list[str]
+    ) -> ItemResolution:
+        """Ask which product of the category, keeping the modifiers the customer gave."""
+        option = self.resolve_modifier(product_id, surface)
+        category = self._menu.category_of(product_id)
+        siblings = category.products if category else ()
+        candidates = tuple(
+            Candidate(id=p.id, score=100.0)
+            for p in siblings
+            if p.available and self.resolve_modifier(p.id, surface).best == option.best
+        )
+        query = _strip_leading(normalize(text), _LEADING_FILLERS)
+        rest = " ".join(f" {query} ".replace(f" {surface} ", " ", 1).split())
+        pieces = self._leftover_pieces(product_id, rest)
+        modifiers = tuple(self.resolve_modifier(product_id, p) for p in [*explicit, *pieces])
+        return ItemResolution(
+            product=Match(MatchStatus.AMBIGUOUS, text, MatchMethod.CONTAINS, candidates),
+            modifiers=(option, *modifiers),
+        )
+
+    def _rival_products(self, product_id: str, pieces: Iterable[str]) -> dict[str, Match]:
+        """Leftover pieces that are not modifiers of the product but do name another one."""
+        rivals = {}
+        for piece in pieces:
+            if self.resolve_modifier(product_id, piece).status is not MatchStatus.NOT_FOUND:
+                continue
+            if _NEGATIONS & set(piece.split()):
+                continue
+            match = self.resolve_product(piece)
+            # A fuzzy near-miss is noise here; the piece stays an unresolved modifier.
+            if match.status is MatchStatus.RESOLVED or (
+                match.status is MatchStatus.AMBIGUOUS and match.method is not MatchMethod.FUZZY
+            ):
+                rivals[piece] = match
+        return rivals
+
+    def _settle_rivals(
+        self,
+        text: str,
+        product: Match,
+        explicit: list[str],
+        pieces: list[str],
+        rivals: dict[str, Match],
+    ) -> ItemResolution:
+        """Take the only reading that explains every word, otherwise ask."""
+        matched = _matched_words(text, product.leftover)
+        complete = []
+        query = _strip_leading(normalize(text), _LEADING_FILLERS)
+        for piece, rival in rivals.items():
+            # Modifiers follow their product, so only a product named first can claim them.
+            if query.find(piece) > query.find(matched):
+                continue
+            others = [p for p in pieces if p != piece]
+            for candidate in rival.candidates:
+                reading = self._reading(text, rival, candidate, [*explicit, *others, matched])
+                if not reading.unresolved_modifiers:
+                    complete.append(reading)
+        if len(complete) == 1:
+            return complete[0]
+        found = [*product.candidates, *(c for r in rivals.values() for c in r.candidates)]
+        unique = tuple({c.id: c for c in found}.values())
+        return ItemResolution(
+            product=Match(MatchStatus.AMBIGUOUS, text, MatchMethod.CONTAINS, unique)
+        )
+
+    def _reading(
+        self, text: str, rival: Match, candidate: Candidate, pieces: Iterable[str]
+    ) -> ItemResolution:
+        """The item as `candidate`, with `pieces` as its modifiers."""
+        product = Match(MatchStatus.RESOLVED, text, rival.method, (candidate,))
+        modifiers = tuple(self.resolve_modifier(candidate.id, p) for p in pieces)
         return ItemResolution(product=product, modifiers=modifiers)
 
     def _leftover_pieces(self, product_id: str, leftover: str) -> list[str]:
