@@ -1,0 +1,201 @@
+# yaml-language-server: $schema=../../docs/config.schema.json
+# Sample burger restaurant. Fictional data. Customer-facing text is Colombian Spanish.
+
+restaurant:
+  id: burger_demo
+  name: "Burger Demo"
+  timezone: America/Bogota
+  currency: COP
+  hours:
+    - {days: [tue, wed, thu, sun], open: "12:00", close: "22:00"}
+    - {days: [fri, sat], open: "12:00", close: "23:30"}
+  notify:
+    channel: telegram
+    chat_id_env: BURGER_DEMO_STAFF_CHAT_ID
+
+fulfillment:
+  delivery: {enabled: true, fee: 5000, eta_minutes: {min: 40, max: 55}}
+  pickup: {enabled: true, eta_minutes: {min: 20, max: 30}}
+
+payment_methods:
+  - id: cash
+    label: Efectivo
+    aliases: [efectivo, cash, billete, "en efectivo", "contra entrega"]
+    ask_change_for: true
+  - id: transfer
+    label: "Transferencia (Nequi / Bancolombia)"
+    aliases: [transferencia, nequi, bancolombia, daviplata, "transfiero", "consignacion"]
+    instructions: "Te enviamos los datos de la cuenta al confirmar el pedido. Mándanos el comprobante por aquí."
+  - id: card_on_delivery
+    label: "Datáfono contra entrega"
+    aliases: [datafono, tarjeta, "con tarjeta", "credito", "debito"]
+
+modes:
+  shadow: true
+  paraphrase_llm: false
+
+session:
+  resume_silently_minutes: 120
+  resume_prompt_hours: 24
+  handoff_timeout_minutes: 30
+
+tone:
+  style: informal
+  emoji: light
+  greeting: "¡Hola! Bienvenido a Burger Demo 🍔 ¿Qué te provoca hoy?"
+
+modifier_groups:
+  - id: quitar
+    label: "Quitar ingredientes"
+    type: remove
+    options:
+      - {id: sin_cebolla, label: "sin cebolla", aliases: ["sin cebolla", "cebolla no", "no cebolla"]}
+      - {id: sin_tomate, label: "sin tomate", aliases: ["sin tomate", "tomate no", "no tomate"]}
+      - {id: sin_lechuga, label: "sin lechuga", aliases: ["sin lechuga", "lechuga no", "no lechuga"]}
+      - {id: sin_pepinillos, label: "sin pepinillos", aliases: ["sin pepinillos", "sin pepinillo", "pepinillos no"]}
+      - {id: sin_salsas, label: "sin salsas", aliases: ["sin salsas", "sin salsa", "sin salsitas"]}
+  - id: adiciones_burger
+    label: "Adiciones"
+    type: add
+    max_select: 4
+    options:
+      - {id: extra_tocineta, label: "tocineta extra", aliases: ["tocineta", "con tocineta", "extra tocineta", "tocino", "bacon"], price: 4000}
+      - {id: extra_queso, label: "queso extra", aliases: ["queso extra", "extra queso", "doble queso", "mas queso"], price: 3000}
+      - {id: extra_carne, label: "carne extra", aliases: ["carne extra", "extra carne", "doble carne", "otra carne"], price: 7000}
+      - {id: extra_huevo, label: "huevo", aliases: ["huevo", "con huevo", "huevo frito"], price: 2500}
+      - {id: extra_cebolla_caramelizada, label: "cebolla caramelizada", aliases: ["cebolla caramelizada", "con cebolla caramelizada"], price: 3000}
+  - id: salsa_tenders
+    label: "Salsa"
+    type: choose_one
+    required: false
+    options:
+      - {id: salsa_bbq, label: "BBQ", aliases: ["bbq", "barbacoa"]}
+      - {id: salsa_miel_mostaza, label: "miel mostaza", aliases: ["miel mostaza", "mostaza miel"]}
+      - {id: salsa_ranch, label: "ranch", aliases: ["ranch"]}
+  - id: tamano_papas
+    label: "Tamaño"
+    type: choose_one
+    required: true
+    options:
+      - {id: papas_personal, label: "personal", aliases: ["personal", "pequeña", "sencilla"]}
+      - {id: papas_familiar, label: "familiar", aliases: ["familiar", "grande", "para compartir"], price: 6000}
+  - id: sabor_malteada
+    label: "Sabor"
+    type: choose_one
+    required: true
+    options:
+      - {id: sabor_vainilla, label: "vainilla", aliases: ["vainilla"]}
+      - {id: sabor_chocolate, label: "chocolate", aliases: ["chocolate", "choco"]}
+      - {id: sabor_fresa, label: "fresa", aliases: ["fresa"]}
+      - {id: sabor_arequipe, label: "arequipe", aliases: ["arequipe"]}
+  - id: tamano_gaseosa
+    label: "Tamaño"
+    type: choose_one
+    required: true
+    options:
+      - {id: gaseosa_personal, label: "personal 400 ml", aliases: ["personal", "pequeña", "400", "botellita"]}
+      - {id: gaseosa_litro_y_medio, label: "1.5 litros", aliases: ["grande", "litro y medio", "1.5", "familiar"], price: 4500}
+
+categories:
+  - id: hamburguesas
+    name: Hamburguesas
+    aliases: [hamburguesa, burger, burguer]
+    products:
+      - id: hamburguesa_sencilla
+        name: "Hamburguesa Sencilla"
+        price: 18000
+        description: "Carne de res 150 g, queso cheddar, lechuga, tomate, cebolla y salsa de la casa."
+        aliases: [sencilla, sencillas, "la sencilla", "hamburguesa sencilla", "la normal", "clasica"]
+        modifier_groups: [quitar, adiciones_burger]
+      - id: hamburguesa_doble
+        name: "Hamburguesa Doble"
+        price: 25000
+        description: "Doble carne, doble queso cheddar, lechuga, tomate, cebolla y salsa de la casa."
+        aliases: [doble, dobles, "la doble", "hamburguesa doble"]
+        modifier_groups: [quitar, adiciones_burger]
+      - id: hamburguesa_especial
+        name: "Hamburguesa Especial"
+        price: 28000
+        description: "Carne 150 g, tocineta, cebolla caramelizada, queso doble crema y salsa BBQ."
+        aliases: [especial, especiales, "la especial", "hamburguesa especial", "la de la casa"]
+        modifier_groups: [quitar, adiciones_burger]
+  - id: acompanantes
+    name: Acompañantes
+    products:
+      - id: chicken_tenders
+        name: "Chicken Tenders"
+        price: 16000
+        description: "5 tiras de pollo apanado con salsa a elección."
+        aliases: [tenders, "chicken tenders", "deditos de pollo", "pollo apanado", "tiras de pollo"]
+        modifier_groups: [salsa_tenders]
+      - id: onion_flower
+        name: "Onion Flower"
+        price: 15000
+        description: "Cebolla entera apanada en forma de flor."
+        aliases: ["onion flower", "flor de cebolla", "cebolla florecida", "onion"]
+      - id: aros_cebolla
+        name: "Aros de Cebolla"
+        price: 9000
+        aliases: [aros, "aros de cebolla", "anillos de cebolla", "onion rings"]
+      - id: papas_fritas
+        name: "Papas Fritas"
+        price: 7000
+        aliases: [papas, papitas, "papas fritas", "papas a la francesa", "francesas"]
+        modifier_groups: [tamano_papas]
+  - id: malteadas
+    name: Malteadas
+    products:
+      - id: malteada
+        name: "Malteada"
+        price: 12000
+        aliases: [malteada, malteadas, milkshake, "batido"]
+        modifier_groups: [sabor_malteada]
+  - id: bebidas
+    name: Bebidas
+    aliases: [bebida, gaseosa, refresco, "algo de tomar"]
+    products:
+      - id: coca_cola
+        name: "Coca-Cola"
+        price: 4000
+        aliases: [coca, "coca cola", cocacola, coke]
+        modifier_groups: [tamano_gaseosa]
+      - id: coca_cola_zero
+        name: "Coca-Cola Zero"
+        price: 4000
+        aliases: ["coca zero", "coca cola zero", "coca sin azucar"]
+        modifier_groups: [tamano_gaseosa]
+      - id: colombiana
+        name: "Colombiana"
+        price: 4000
+        aliases: [colombiana, "la colombiana"]
+        modifier_groups: [tamano_gaseosa]
+      - id: agua
+        name: "Agua"
+        price: 3000
+        aliases: [agua, "botella de agua", "agua sin gas"]
+  - id: cervezas
+    name: Cervezas
+    aliases: [cerveza, pola, birra]
+    products:
+      - id: club_colombia
+        name: "Club Colombia Dorada"
+        price: 6000
+        aliases: ["club colombia", club, "club dorada"]
+      - id: aguila
+        name: "Águila"
+        price: 5000
+        aliases: [aguila, aguilita]
+      - id: corona
+        name: "Corona"
+        price: 8000
+        aliases: [corona, coronita]
+
+rules:
+  - type: upsell
+    after_categories: [hamburguesas]
+    suggest_categories: [acompanantes, bebidas, malteadas]
+  - type: max_qty_per_line
+    value: 20
+  - type: age_notice
+    categories: [cervezas]
+    message: "Recuerda que la venta de bebidas alcohólicas es solo para mayores de 18 años."

@@ -1,0 +1,707 @@
+{
+  "$defs": {
+    "AgeNoticeRule": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "age_notice",
+          "title": "Type",
+          "type": "string"
+        },
+        "categories": {
+          "items": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z0-9_]+$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Categories",
+          "type": "array"
+        },
+        "message": {
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "categories",
+        "message"
+      ],
+      "title": "AgeNoticeRule",
+      "type": "object"
+    },
+    "Category": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "aliases": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Aliases",
+          "type": "array"
+        },
+        "products": {
+          "items": {
+            "$ref": "#/$defs/Product"
+          },
+          "minItems": 1,
+          "title": "Products",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "products"
+      ],
+      "title": "Category",
+      "type": "object"
+    },
+    "DeliveryOptions": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "fee": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Fee",
+          "type": "integer"
+        },
+        "eta_minutes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EtaRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "DeliveryOptions",
+      "type": "object"
+    },
+    "EtaRange": {
+      "additionalProperties": false,
+      "properties": {
+        "min": {
+          "minimum": 1,
+          "title": "Min",
+          "type": "integer"
+        },
+        "max": {
+          "minimum": 1,
+          "title": "Max",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "title": "EtaRange",
+      "type": "object"
+    },
+    "FulfillmentConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "delivery": {
+          "$ref": "#/$defs/DeliveryOptions",
+          "default": {
+            "enabled": false,
+            "fee": 0,
+            "eta_minutes": null
+          }
+        },
+        "pickup": {
+          "$ref": "#/$defs/PickupOptions",
+          "default": {
+            "enabled": false,
+            "eta_minutes": null
+          }
+        }
+      },
+      "title": "FulfillmentConfig",
+      "type": "object"
+    },
+    "MaxQtyPerLineRule": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "max_qty_per_line",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "minimum": 1,
+          "title": "Value",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "value"
+      ],
+      "title": "MaxQtyPerLineRule",
+      "type": "object"
+    },
+    "Modes": {
+      "additionalProperties": false,
+      "properties": {
+        "shadow": {
+          "default": true,
+          "title": "Shadow",
+          "type": "boolean"
+        },
+        "paraphrase_llm": {
+          "default": false,
+          "title": "Paraphrase Llm",
+          "type": "boolean"
+        }
+      },
+      "title": "Modes",
+      "type": "object"
+    },
+    "ModifierGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/ModifierGroupType"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "max_select": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Select"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/ModifierOption"
+          },
+          "minItems": 1,
+          "title": "Options",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "type",
+        "options"
+      ],
+      "title": "ModifierGroup",
+      "type": "object"
+    },
+    "ModifierGroupType": {
+      "enum": [
+        "remove",
+        "add",
+        "choose_one"
+      ],
+      "title": "ModifierGroupType",
+      "type": "string"
+    },
+    "ModifierOption": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "aliases": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Aliases",
+          "type": "array"
+        },
+        "price": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Price",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "title": "ModifierOption",
+      "type": "object"
+    },
+    "OpeningHours": {
+      "additionalProperties": false,
+      "properties": {
+        "days": {
+          "items": {
+            "$ref": "#/$defs/Weekday"
+          },
+          "minItems": 1,
+          "title": "Days",
+          "type": "array"
+        },
+        "open": {
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+          "title": "Open",
+          "type": "string"
+        },
+        "close": {
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+          "title": "Close",
+          "type": "string"
+        }
+      },
+      "required": [
+        "days",
+        "open",
+        "close"
+      ],
+      "title": "OpeningHours",
+      "type": "object"
+    },
+    "PaymentMethod": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "aliases": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Aliases",
+          "type": "array"
+        },
+        "instructions": {
+          "default": "",
+          "title": "Instructions",
+          "type": "string"
+        },
+        "ask_change_for": {
+          "default": false,
+          "title": "Ask Change For",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "title": "PaymentMethod",
+      "type": "object"
+    },
+    "PickupOptions": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "eta_minutes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EtaRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "PickupOptions",
+      "type": "object"
+    },
+    "Product": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "price": {
+          "minimum": 0,
+          "title": "Price",
+          "type": "integer"
+        },
+        "aliases": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Aliases",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "modifier_groups": {
+          "default": [],
+          "items": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z0-9_]+$",
+            "type": "string"
+          },
+          "title": "Modifier Groups",
+          "type": "array"
+        },
+        "available": {
+          "default": true,
+          "title": "Available",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "price"
+      ],
+      "title": "Product",
+      "type": "object"
+    },
+    "RestaurantInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9_]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "timezone": {
+          "default": "America/Bogota",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "currency": {
+          "const": "COP",
+          "default": "COP",
+          "title": "Currency",
+          "type": "string"
+        },
+        "hours": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/OpeningHours"
+          },
+          "title": "Hours",
+          "type": "array"
+        },
+        "notify": {
+          "$ref": "#/$defs/StaffNotification"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "notify"
+      ],
+      "title": "RestaurantInfo",
+      "type": "object"
+    },
+    "SessionPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "resume_silently_minutes": {
+          "default": 120,
+          "minimum": 1,
+          "title": "Resume Silently Minutes",
+          "type": "integer"
+        },
+        "resume_prompt_hours": {
+          "default": 24,
+          "minimum": 1,
+          "title": "Resume Prompt Hours",
+          "type": "integer"
+        },
+        "handoff_timeout_minutes": {
+          "default": 30,
+          "minimum": 1,
+          "title": "Handoff Timeout Minutes",
+          "type": "integer"
+        }
+      },
+      "title": "SessionPolicy",
+      "type": "object"
+    },
+    "StaffNotification": {
+      "additionalProperties": false,
+      "properties": {
+        "channel": {
+          "const": "telegram",
+          "default": "telegram",
+          "title": "Channel",
+          "type": "string"
+        },
+        "chat_id_env": {
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "title": "Chat Id Env",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chat_id_env"
+      ],
+      "title": "StaffNotification",
+      "type": "object"
+    },
+    "Tone": {
+      "additionalProperties": false,
+      "properties": {
+        "style": {
+          "$ref": "#/$defs/ToneStyle",
+          "default": "informal"
+        },
+        "emoji": {
+          "default": "light",
+          "enum": [
+            "none",
+            "light",
+            "heavy"
+          ],
+          "title": "Emoji",
+          "type": "string"
+        },
+        "greeting": {
+          "minLength": 1,
+          "title": "Greeting",
+          "type": "string"
+        }
+      },
+      "required": [
+        "greeting"
+      ],
+      "title": "Tone",
+      "type": "object"
+    },
+    "ToneStyle": {
+      "enum": [
+        "informal",
+        "formal"
+      ],
+      "title": "ToneStyle",
+      "type": "string"
+    },
+    "UpsellRule": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "upsell",
+          "title": "Type",
+          "type": "string"
+        },
+        "after_categories": {
+          "items": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z0-9_]+$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "After Categories",
+          "type": "array"
+        },
+        "suggest_categories": {
+          "items": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z0-9_]+$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Suggest Categories",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "after_categories",
+        "suggest_categories"
+      ],
+      "title": "UpsellRule",
+      "type": "object"
+    },
+    "Weekday": {
+      "enum": [
+        "mon",
+        "tue",
+        "wed",
+        "thu",
+        "fri",
+        "sat",
+        "sun"
+      ],
+      "title": "Weekday",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "restaurant": {
+      "$ref": "#/$defs/RestaurantInfo"
+    },
+    "fulfillment": {
+      "$ref": "#/$defs/FulfillmentConfig"
+    },
+    "payment_methods": {
+      "items": {
+        "$ref": "#/$defs/PaymentMethod"
+      },
+      "minItems": 1,
+      "title": "Payment Methods",
+      "type": "array"
+    },
+    "modes": {
+      "$ref": "#/$defs/Modes",
+      "default": {
+        "shadow": true,
+        "paraphrase_llm": false
+      }
+    },
+    "session": {
+      "$ref": "#/$defs/SessionPolicy",
+      "default": {
+        "resume_silently_minutes": 120,
+        "resume_prompt_hours": 24,
+        "handoff_timeout_minutes": 30
+      }
+    },
+    "tone": {
+      "$ref": "#/$defs/Tone"
+    },
+    "modifier_groups": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ModifierGroup"
+      },
+      "title": "Modifier Groups",
+      "type": "array"
+    },
+    "categories": {
+      "items": {
+        "$ref": "#/$defs/Category"
+      },
+      "minItems": 1,
+      "title": "Categories",
+      "type": "array"
+    },
+    "rules": {
+      "default": [],
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "age_notice": "#/$defs/AgeNoticeRule",
+            "max_qty_per_line": "#/$defs/MaxQtyPerLineRule",
+            "upsell": "#/$defs/UpsellRule"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/UpsellRule"
+          },
+          {
+            "$ref": "#/$defs/MaxQtyPerLineRule"
+          },
+          {
+            "$ref": "#/$defs/AgeNoticeRule"
+          }
+        ]
+      },
+      "title": "Rules",
+      "type": "array"
+    }
+  },
+  "required": [
+    "restaurant",
+    "fulfillment",
+    "payment_methods",
+    "tone",
+    "categories"
+  ],
+  "title": "pedidos-bot restaurant configuration",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
