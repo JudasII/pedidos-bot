@@ -54,16 +54,25 @@ _PICKUP = _phrases("recoger", "para recoger", "paso a recoger", "yo recojo", "pa
 _CONFIRM_EMOJI = frozenset("👍👌✅")
 
 
+def is_confirm(text: str) -> bool:
+    return _key(text) in _CONFIRM or (bool(text) and set(text) <= _CONFIRM_EMOJI)
+
+
+def is_deny(text: str) -> bool:
+    return _key(text) in _DENY
+
+
 def detect(message: InboundMessage, resolver: MenuResolver) -> tuple[Action, ...] | None:
     """The actions for `message` if a shortcut covers it, otherwise None."""
     if message.kind not in (MessageKind.TEXT, MessageKind.INTERACTIVE_REPLY):
         return (AskHuman(),)
     text = message.content
     key = _key(text)
+    if is_confirm(text):
+        return (Confirm(),)
     if not key:
-        return (Confirm(),) if text and set(text) <= _CONFIRM_EMOJI else None
+        return None
     for phrases, action in (
-        (_CONFIRM, Confirm()),
         (_DENY, Deny()),
         (_CANCEL, CancelOrder()),
         (_HUMAN, AskHuman()),

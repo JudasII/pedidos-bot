@@ -1,9 +1,14 @@
+import asyncio
 from pathlib import Path
 
 import pytest
 
 from pedidos_bot import __version__
+from pedidos_bot.channels.terminal import run_chat
 from pedidos_bot.cli import main
+from pedidos_bot.config.loader import load_restaurant
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_main_without_arguments_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
@@ -49,3 +54,27 @@ def test_resolve_command(capsys: pytest.CaptureFixture[str]) -> None:
     assert main([*args, "malteda de fresa"]) == 0
     out = capsys.readouterr().out
     assert "product: resolved" in out and "sabor_fresa" in out
+
+
+def test_chat_runs_a_conversation_until_the_exit_command() -> None:
+    config = load_restaurant("minimal_demo", ROOT / "config" / "restaurants")
+    said = iter(["un suizo", "/salir"])
+    output: list[str] = []
+    asyncio.run(run_chat(config, read=lambda _: next(said), write=output.append))
+    text = "\n".join(output)
+    assert "Registrado: 1 x Perro Suizo" in text
+    assert "[ordering]" in text
+
+
+def test_chat_ends_on_end_of_input() -> None:
+    config = load_restaurant("minimal_demo", ROOT / "config" / "restaurants")
+
+    def closed(_: str) -> str:
+        raise EOFError
+
+    asyncio.run(run_chat(config, read=closed, write=lambda _: None))
+
+
+def test_chat_reports_an_unknown_restaurant(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["chat", "--restaurant", "nope"]) == 1
+    assert "file not found" in capsys.readouterr().err

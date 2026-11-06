@@ -18,11 +18,11 @@ from pedidos_bot.domain.money import format_cop
 from pedidos_bot.engine.templates import HEAVY_EMOJI, LIGHT_EMOJI, TEMPLATES, WEEKDAYS, Msg
 
 
-def join_options(options: Sequence[str]) -> str:
-    """ "a, b o c" """
+def join_options(options: Sequence[str], word: str = "o") -> str:
+    """ "a, b o c", for alternatives. Pass "y" for things that all apply."""
     if len(options) < 2:
         return "".join(options)
-    return f"{', '.join(options[:-1])} o {options[-1]}"
+    return f"{', '.join(options[:-1])} {word} {options[-1]}"
 
 
 class Responder:

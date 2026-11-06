@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
 from pedidos_bot import __version__
+from pedidos_bot.channels.terminal import run_chat
 from pedidos_bot.config.loader import (
     ConfigError,
     config_json_schema_text,
@@ -33,6 +35,10 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("paths", nargs="+", type=Path)
     schema = config_sub.add_parser("schema", help="print the configuration JSON Schema")
     schema.add_argument("--output", type=Path, help="write to a file instead of stdout")
+
+    chat = sub.add_parser("chat", help="chat with the bot in the terminal, with the fake LLM")
+    chat.add_argument("--restaurant", required=True)
+    chat.add_argument("--config-dir", type=Path, default=Path("config/restaurants"))
 
     nlu = sub.add_parser("nlu", help="LLM contract tools")
     nlu_sub = nlu.add_subparsers(dest="nlu_command", required=True)
@@ -95,6 +101,16 @@ def _resolve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _chat(args: argparse.Namespace) -> int:
+    try:
+        config = load_restaurant(args.restaurant, args.config_dir)
+    except ConfigError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    asyncio.run(run_chat(config))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -105,6 +121,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "nlu":
         text = json.dumps(actions_json_schema(), indent=2, ensure_ascii=False) + "\n"
         return _schema(text, args.output)
+    if args.command == "chat":
+        return _chat(args)
     if args.command == "resolve":
         return _resolve(args)
     parser.print_help()
