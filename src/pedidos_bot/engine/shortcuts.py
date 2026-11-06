@@ -30,6 +30,7 @@ def _phrases(*phrases: str) -> frozenset[str]:
     return frozenset(_key(phrase) for phrase in phrases)
 
 
+# TODO(#44): accept combined affirmations, not only this fixed list.
 _CONFIRM = _phrases(
     "sí", "si señor", "si señora", "si por favor", "si porfa", "si gracias", "dale", "dale pues",
     "de una", "listo", "listo pues", "ok", "okey", "okay", "claro", "claro que si", "confirmo",
@@ -40,6 +41,7 @@ _DENY = _phrases(
     "no", "nop", "nel", "no gracias", "no señor", "no señora", "nada", "nada más",
     "eso es todo", "sería todo", "ya no más", "no más",
 )  # fmt: skip
+# TODO(#43): check in testing whether these are clear enough signs of intent.
 _DONE_ADDING = _phrases("listo", "listo pues", "así está bien", "todo bien")
 """Confirmations that also mean "nothing more", unlike a plain "sí"."""
 _CANCEL = _phrases(
@@ -53,6 +55,7 @@ _HUMAN = _phrases(
 )  # fmt: skip
 _DELIVERY = _phrases("domicilio", "a domicilio", "para domicilio", "envío", "que me lo traigan")
 _PICKUP = _phrases("recoger", "para recoger", "paso a recoger", "yo recojo", "para llevar")
+# TODO(#44): decide which other emoji confirm, and in which contexts.
 _CONFIRM_EMOJI = frozenset("👍👌✅")
 
 

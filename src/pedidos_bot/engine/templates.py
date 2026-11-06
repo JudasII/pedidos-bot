@@ -53,6 +53,7 @@ class Msg(StrEnum):
     OPTION_PICKUP = "option_pickup"
 
 
+# TODO(#45): some of these sound robotic or are hard to follow; refine them with real chats.
 TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
     ToneStyle.INFORMAL: {
         Msg.ADDED: "Anotado: {item}.",

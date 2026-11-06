@@ -397,6 +397,7 @@ class Turn:
 
     def _set_address(self, action: SetAddress) -> None:
         """An address means delivery, even if the customer had chosen pickup before."""
+        # TODO(#41): after choosing pickup this is ambiguous, so ask before switching.
         try:
             cart = carts.set_fulfillment(self._cart, self._config, Fulfillment.DELIVERY)
         except CartError:
@@ -469,6 +470,7 @@ class Turn:
             if self.conversation.misunderstood >= MAX_MISUNDERSTOOD:
                 self._start_handoff()
             elif not self._notes:
+                # TODO(#42): offer a person here, before the customer gets frustrated.
                 self._note(Msg.NOT_UNDERSTOOD)
         if self._final is not None:
             self._update(asked=None, asked_choice=None, options=())

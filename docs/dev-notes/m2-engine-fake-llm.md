@@ -18,7 +18,7 @@ Date: 2026-11-06 · Branch `m2-engine-fake-llm` · Issues #7, #8, #9, #10, #11, 
 - **An item with an unclear modifier stays out of the cart until the customer answers.** Added earlier, it could merge with an identical line and the answer would change units they never mentioned.
 - **"Sí" and "listo" differ at "¿Algo más?":** "sí" means there is more, "listo" means done. At the confirmation both confirm.
 - **Giving fulfillment, address or payment ends the item list,** so a multi-field message reaches the summary in one turn.
-- **An address implies delivery,** even after choosing pickup. The summary shows the fee before confirming.
+- **An address implies delivery,** even after choosing pickup. The summary shows the fee before confirming. The PR #38 review found this too ambiguous after choosing pickup: the bot should ask (#41).
 - **A confirmed order can't be cancelled by the bot.** The customer is told it is confirmed and handed to a person.
 - **Only "didn't understand" escalates.** Asking for something off the menu gets an answer and doesn't count.
 - A customer change during `PENDING_STAFF_CONFIRMATION` returns the order to ORDERING. M4 must tell the staff.
@@ -45,6 +45,15 @@ Date: 2026-11-06 · Branch `m2-engine-fake-llm` · Issues #7, #8, #9, #10, #11, 
 - `deliver_pending` stops at the first failed send, so one closed window would block the rest. #15 must handle this per message.
 - The LLM call runs inside the turn, as ADR-0002 defines, so M3 will hold a row lock for its full latency. Worth measuring in M5.
 - `system_prompt` is a placeholder until M5.
+
+## Review follow-ups (PR #38)
+- #41 ask before an address switches pickup to delivery.
+- #42 tell customers they talk to a bot and can reach a person, without waiting for a second failure.
+- #43 check in testing whether "listo" is a clear enough sign that the order is finished.
+- #44 combined affirmations and more emoji.
+- #45 refine templates with real chats.
+- **Voice is not a supported feature.** `MessageKind.VOICE` exists so an unknown message type can't crash the app; these messages go to a person.
+- **Locations come much later.** The idea from the review: don't interpret a shared location, only check whether it is live or a one-off, and forward it to the delivery company. No issue yet; until then they go to a person.
 
 ## Learnings
 - Writing to a repository protocol from the start kept persistence out of the engine.
