@@ -2,7 +2,7 @@
 
 A conversational assistant that takes restaurant orders over chat and hands the cashier a clean, structured order ready to validate.
 
-> Status: **development phase, milestone M1 (domain and configuration)**. See [ROADMAP.md](ROADMAP.md).
+> Status: **development phase, milestone M2 (engine with simulated LLM)**. See [ROADMAP.md](ROADMAP.md).
 
 ## Vision
 
@@ -50,6 +50,7 @@ cp .env.example .env   # fill in the values
 uv run pytest
 uv run pedidos-bot config validate config/restaurants/*.yaml
 uv run pedidos-bot resolve --restaurant burger_demo "malteda de fresa"
+uv run pedidos-bot chat --restaurant burger_demo
 ```
 
 Restaurant configs live in `config/restaurants/<id>.yaml` and are validated against [docs/config.schema.json](docs/config.schema.json) (editors with YAML language support autocomplete from it). Commands to chat with the bot (terminal REPL and Telegram) arrive in milestones M2 and M4.

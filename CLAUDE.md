@@ -28,10 +28,16 @@ Conversational assistant engine that takes burger-restaurant orders over chat. S
 - Persistence: **PostgreSQL from day one** (ADR-0002), psycopg 3, plain SQL migrations. No cache (Redis) yet: not needed in this phase.
 - Observability: OpenTelemetry instrumentation exported to **self-hosted Langfuse** (ADR-0003).
 
-## Code map (as of M1)
+## Code map (as of M2)
 - `domain/menu.py` menu models · `domain/cart.py` immutable cart + pure ops, `totals()`, `pending()` · `domain/money.py` `format_cop`.
 - `config/schema.py` `RestaurantConfig` · `config/loader.py` `load_restaurant`, `ConfigError`, `resolve_staff_chat_id`, JSON Schema export (`docs/config.schema.json`, kept in sync by a test).
 - `engine/resolver.py` `MenuResolver`: exact → containment → fuzzy; returns RESOLVED / AMBIGUOUS / NOT_FOUND, never guesses. Orders go through `resolve_item`, which checks the whole phrase; `resolve_product` alone ignores leftover words.
+- `engine/actions.py` typed actions (schema in `docs/actions.schema.json`, kept in sync by a test) · `engine/nlu.py` `Nlu` · `llm/base.py` `LLMProvider` · `llm/fake.py` `ScriptedLLM`, `RuleBasedLLM`.
+- `engine/shortcuts.py` `detect` · `engine/lifecycle.py` `Lifecycle`, `TRANSITIONS` · `engine/policy.py` `next_step` · `engine/templates.py` `Msg`, per-tone text · `engine/responder.py` `Responder`.
+- `engine/conversation.py` `Conversation` (state between turns) · `engine/turn.py` `Turn` (logic of one turn, no I/O) · `engine/service.py` `ConversationService.handle`.
+- `channels/base.py` message models, `Channel`, `degrade` · `channels/memory.py` `InMemoryChannel`, `WHATSAPP_LIKE` · `channels/terminal.py` REPL.
+- `storage/base.py` `ConversationRepository` (owns the turn boundary), `deliver_pending` · `storage/memory.py` `InMemoryRepository`.
+- `tests/e2e/harness.py` `Chat`: a customer talking to the real engine.
 - `tests/factories.py` `make_config()` small generic config for unit tests.
 - After `ruff check --fix`, run `ruff format` again.
 
