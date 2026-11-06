@@ -194,3 +194,25 @@ def test_cart_is_immutable() -> None:
     cart = Cart()
     new_cart, _ = add_item(cart, CONFIG, "classic")
     assert cart.is_empty and not new_cart.is_empty
+
+
+def test_update_merges_a_line_that_becomes_identical_to_another() -> None:
+    cart, _ = add_item(Cart(), CONFIG, "classic", qty=2)
+    cart, line = add_item(cart, CONFIG, "classic", qty=1, modifiers=[NO_ONION])
+    cart = update_line(cart, CONFIG, line.line_id, remove_modifiers=[NO_ONION])
+    assert [(item.line_id, item.qty, item.modifiers) for item in cart.lines] == [(1, 3, ())]
+
+
+def test_update_merge_respects_the_quantity_limit() -> None:
+    cart, _ = add_item(Cart(), CONFIG, "classic", qty=CONFIG.max_qty_per_line)
+    cart, line = add_item(cart, CONFIG, "classic", qty=1, modifiers=[NO_ONION])
+    with pytest.raises(InvalidQuantityError):
+        update_line(cart, CONFIG, line.line_id, remove_modifiers=[NO_ONION])
+
+
+def test_adding_after_a_price_change_does_not_reuse_the_old_price() -> None:
+    cart, line = add_item(Cart(), CONFIG, "classic")
+    data = config_dict()
+    data["categories"][0]["products"][0]["price"] = line.unit_price + 1000
+    cart, _ = add_item(cart, make_config(**data), "classic")
+    assert [item.unit_price for item in cart.lines] == [line.unit_price, line.unit_price + 1000]

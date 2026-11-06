@@ -49,6 +49,7 @@ class CartLine(_Model):
             self.product_id == other.product_id
             and set(self.modifiers) == set(other.modifiers)
             and self.note == other.note
+            and self.unit_price == other.unit_price
         )
 
 
@@ -151,7 +152,7 @@ def add_item(
     modifiers: Iterable[ModifierChoice] = (),
     note: str = "",
 ) -> tuple[Cart, CartLine]:
-    """Add an item. Identical items (same product, modifiers and note) are merged."""
+    """Add an item. Identical items (same product, modifiers, note and price) are merged."""
     menu = config.menu
     product = _available_product(menu, product_id)
     choices = _validated_choices(menu, product, modifiers)
@@ -188,7 +189,8 @@ def update_line(
 ) -> Cart:
     """Change quantity, modifiers or note of a line.
 
-    Adding an option to a `choose_one` group replaces the previous choice in that group.
+    Adding an option to a `choose_one` group replaces the previous choice in that group. A
+    line that ends up identical to another one is merged into it.
     """
     line = _existing_line(cart, line_id)
     menu = config.menu
@@ -208,7 +210,14 @@ def update_line(
             "unit_price": price_unit(menu, product, choices),
         }
     )
-    return _replace_line(cart, updated)
+    twin = next(
+        (other for other in cart.lines if other.line_id != line_id and other.same_item_as(updated)),
+        None,
+    )
+    if twin is None:
+        return _replace_line(cart, updated)
+    merged = twin.model_copy(update={"qty": _check_qty(twin.qty + updated.qty, config)})
+    return _replace_line(remove_line(cart, line_id), merged)
 
 
 def remove_line(cart: Cart, line_id: int) -> Cart:
