@@ -19,6 +19,7 @@ Detailed tracking in the [GitHub milestones and issues](https://github.com/Judas
 - WhatsApp Cloud API adapter (webhooks, templates, 24-hour window, interactive messages).
 - Deployment with PostgreSQL, backups and Langfuse; add a cache (Redis) only when a concrete need appears.
 - Shadow-mode pilot with 1 restaurant; autonomous mode if metrics allow.
+- Decide on a customer web ordering link, using the pilot's data (ADR-0004, #39).
 
 ## Phase 3 — Monetization decision
 

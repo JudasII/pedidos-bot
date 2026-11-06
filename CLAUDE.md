@@ -10,7 +10,7 @@ Conversational assistant engine that takes burger-restaurant orders over chat. S
 
 ## Scope (do not change without asking the user)
 - In: conversation and order engine, Telegram channel for development, LLM behind an interface, restaurant notification via Telegram, payment-method recording, human handoff (relay through the bot), shadow mode, persistence/idempotency, evaluation, observability.
-- Out: real WhatsApp adapter (only design the interface with it in mind), payment gateways, POS, CRM, web dashboard, multi-tenant, other verticals, advanced context summarization.
+- Out: real WhatsApp adapter (only design the interface with it in mind), payment gateways, POS, CRM, web dashboard, customer web ordering (deferred, ADR-0004), multi-tenant, other verticals, advanced context summarization.
 - Never hardcode a restaurant in `src/`. Everything specific goes in `config/restaurants/*.yaml`. A test (`tests/unit/config/test_sample_configs.py`) enforces this, including docstrings and comments: use generic examples (e.g. "pizza") in `src/`.
 - If something is ambiguous, ask the user instead of assuming.
 
@@ -27,6 +27,7 @@ Conversational assistant engine that takes burger-restaurant orders over chat. S
 - Currency COP as integers, displayed as `$18.000`. Fixed ETA per fulfillment mode in config.
 - Persistence: **PostgreSQL from day one** (ADR-0002), psycopg 3, plain SQL migrations. No cache (Redis) yet: not needed in this phase.
 - Observability: OpenTelemetry instrumentation exported to **self-hosted Langfuse** (ADR-0003).
+- Orders don't depend on the chat: one entry point, `orders.source`, optional conversation link, notification built from the order alone (ADR-0004).
 
 ## Code map (as of M1)
 - `domain/menu.py` menu models · `domain/cart.py` immutable cart + pure ops, `totals()`, `pending()` · `domain/money.py` `format_cop`.
