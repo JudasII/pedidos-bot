@@ -241,6 +241,8 @@ ISSUES: list[Issue] = [
             "Numbered migrations applied at startup, idempotent",
             "`docker compose up db` provides a local database; CI runs repository tests against a Postgres service",
             "Row locking per conversation (`SELECT ... FOR UPDATE`)",
+            "Orders don't depend on a conversation: one entry point creates them, `orders.source` "
+            "records the origin (`chat` for now), and the conversation link is optional (ADR-0004)",
         ],
     ),
     Issue(
@@ -302,7 +304,10 @@ ISSUES: list[Issue] = [
         M4,
         ["type:feature", "area:channel", "priority:p0", "phase:dev"],
         "A clean summary ready for the cashier to validate.",
-        ["Summary with code, lines, modifiers, total, fulfillment, address and payment method"],
+        [
+            "Summary with code, lines, modifiers, total, fulfillment, address and payment method",
+            "The notification is built from the order alone, not from the conversation (ADR-0004)",
+        ],
     ),
     Issue(
         "Human handoff via relay",
@@ -438,6 +443,21 @@ ISSUES: list[Issue] = [
         ["type:docs", "priority:p2", "phase:business"],
         "Attention workload saved, errors, cost per order.",
         ["Decision document: charge / continue / archive as a portfolio piece"],
+    ),
+    Issue(
+        "Web ordering link: decide after the pilot",
+        P2,
+        ["type:feature", "area:channel", "priority:p2", "phase:pilot"],
+        "A web page where customers build the order themselves, as an alternative to chat. "
+        "Deferred by ADR-0004 so the pilot still measures conversational ordering. "
+        "Review it with the pilot's data.",
+        [
+            "Decision recorded from pilot data: where chat fails, its cost per order, and "
+            "whether a POS is planned",
+            "If approved: a signed, expiring link per chat, so the order is confirmed in that chat",
+            "If approved: the server recomputes prices and totals from product and option IDs",
+            "If approved: web orders use the same entry point as chat orders, with `source=web`",
+        ],
     ),
 ]
 
