@@ -437,7 +437,7 @@ class Turn:
                 text="\n\n".join([*self._notes, self._responder.text(Msg.STILL_PENDING)])
             )
         question, replies = self._next_question()
-        self._update(options=tuple(reply.payload for reply in replies))
+        self._update(greeted=True, options=tuple(reply.payload for reply in replies))
         return OutboundMessage(text="\n\n".join([*self._notes, question]), quick_replies=replies)
 
     def _next_question(self) -> tuple[str, tuple[QuickReply, ...]]:
@@ -474,7 +474,6 @@ class Turn:
             case Step.ITEMS:
                 if self.conversation.greeted:
                     return responder.text(Msg.ASK_ITEMS), ()
-                self._update(greeted=True)
                 return responder.greeting, ()
             case Step.REQUIRED_CHOICE:
                 return self._required_choice_question(next_)

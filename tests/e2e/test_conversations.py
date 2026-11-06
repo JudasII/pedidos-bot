@@ -155,6 +155,14 @@ async def test_no_at_confirmation_asks_what_to_change_and_then_returns() -> None
     assert chat.conversation.cart.payment is not None
 
 
+async def test_the_greeting_only_opens_a_conversation() -> None:
+    chat = Chat(BURGER)
+    await chat.say("una sencilla")
+    reply = await chat.say("quita la sencilla")
+    assert BURGER.tone.greeting not in reply
+    assert "¿Qué te provoca?" in reply
+
+
 async def test_confirm_with_a_change_shows_the_new_summary_first() -> None:
     llm = ScriptedLLM(
         [
