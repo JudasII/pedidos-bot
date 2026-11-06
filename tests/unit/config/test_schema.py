@@ -121,3 +121,9 @@ def test_staff_chat_id_comes_from_environment() -> None:
 def test_json_schema_covers_top_level_sections() -> None:
     schema = config_json_schema()
     assert set(schema["required"]) >= {"restaurant", "fulfillment", "payment_methods", "tone"}
+
+
+def test_unknown_timezone_is_rejected() -> None:
+    data = config_dict()
+    data["restaurant"]["timezone"] = "America/Nowhere"
+    assert "unknown timezone" in _errors(data)

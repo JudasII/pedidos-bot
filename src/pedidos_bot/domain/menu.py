@@ -25,9 +25,9 @@ class _Model(BaseModel):
 
 class ModifierGroupType(StrEnum):
     REMOVE = "remove"
-    """Remove an ingredient ("sin cebolla"). Usually free, multi-select."""
+    """Remove an ingredient ("sin champiñones"). Usually free, multi-select."""
     ADD = "add"
-    """Paid or free add-ons ("tocineta extra"). Multi-select."""
+    """Paid or free add-ons ("aceitunas extra"). Multi-select."""
     CHOOSE_ONE = "choose_one"
     """Pick exactly one option, e.g. size or flavor."""
 
@@ -81,7 +81,7 @@ class Category(_Model):
     id: Identifier
     name: str = Field(min_length=1)
     aliases: tuple[str, ...] = ()
-    """Generic words for the category ("cerveza", "gaseosa"). They never resolve to a single
+    """Generic words for the category ("pizza", "pasta"). They never resolve to a single
     product on their own; they produce a clarification listing the category's products."""
     products: tuple[Product, ...] = Field(min_length=1)
 

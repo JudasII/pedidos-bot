@@ -54,10 +54,13 @@ def _restaurant_terms(config: RestaurantConfig) -> set[str]:
     terms = {config.restaurant.id, config.restaurant.name}
     for product in config.menu.products():
         terms |= {product.id, product.name}
+        terms |= set(product.aliases)
     for group in config.modifier_groups:
         terms.add(group.id)
-        terms |= {option.id for option in group.options}
-    terms |= {c.id for c in config.categories}
+        for option in group.options:
+            terms |= {option.id, option.label, *option.aliases}
+    for category in config.categories:
+        terms |= {category.id, category.name, *category.aliases}
     return {t.lower() for t in terms if len(t) >= 4}
 
 

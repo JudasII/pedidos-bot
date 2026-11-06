@@ -8,9 +8,11 @@ tone, menu and business rules. The core never hardcodes any of it.
 from __future__ import annotations
 
 from enum import StrEnum
+from functools import cached_property
 from typing import Annotated, Literal, Self
+from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from pedidos_bot.domain.menu import Category, Identifier, Menu, ModifierGroup, Price
 
@@ -50,6 +52,15 @@ class RestaurantInfo(_Model):
     currency: Literal["COP"] = "COP"
     hours: tuple[OpeningHours, ...] = ()
     notify: StaffNotification
+
+    @field_validator("timezone")
+    @classmethod
+    def _check_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (KeyError, ValueError, OSError) as exc:
+            raise ValueError(f"unknown timezone '{value}'") from exc
+        return value
 
 
 class EtaRange(_Model):
@@ -186,7 +197,7 @@ class RestaurantConfig(_Model):
                 )
         return self
 
-    @property
+    @cached_property
     def menu(self) -> Menu:
         return Menu(modifier_groups=self.modifier_groups, categories=self.categories)
 
