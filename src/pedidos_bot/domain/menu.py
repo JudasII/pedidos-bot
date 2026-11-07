@@ -10,17 +10,15 @@ from collections.abc import Iterator
 from enum import StrEnum
 from typing import Annotated, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
+
+from pedidos_bot.models import FrozenModel
 
 Identifier = Annotated[str, Field(pattern=r"^[a-z0-9_]+$", min_length=1, max_length=64)]
 """Stable machine identifier: lowercase letters, digits and underscores."""
 
 Price = Annotated[int, Field(ge=0)]
 """Amount in the restaurant's currency minor-less unit (e.g. whole COP)."""
-
-
-class _Model(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 class ModifierGroupType(StrEnum):
@@ -32,14 +30,14 @@ class ModifierGroupType(StrEnum):
     """Pick exactly one option, e.g. size or flavor."""
 
 
-class ModifierOption(_Model):
+class ModifierOption(FrozenModel):
     id: Identifier
     label: str = Field(min_length=1)
     aliases: tuple[str, ...] = ()
     price: Price = 0
 
 
-class ModifierGroup(_Model):
+class ModifierGroup(FrozenModel):
     id: Identifier
     label: str = Field(min_length=1)
     type: ModifierGroupType
@@ -67,7 +65,7 @@ class ModifierGroup(_Model):
         return next((o for o in self.options if o.id == option_id), None)
 
 
-class Product(_Model):
+class Product(FrozenModel):
     id: Identifier
     name: str = Field(min_length=1)
     price: Price
@@ -77,7 +75,7 @@ class Product(_Model):
     available: bool = True
 
 
-class Category(_Model):
+class Category(FrozenModel):
     id: Identifier
     name: str = Field(min_length=1)
     aliases: tuple[str, ...] = ()
@@ -86,7 +84,7 @@ class Category(_Model):
     products: tuple[Product, ...] = Field(min_length=1)
 
 
-class Menu(_Model):
+class Menu(FrozenModel):
     """A restaurant's full menu with cross-reference validation."""
 
     modifier_groups: tuple[ModifierGroup, ...] = ()

@@ -11,14 +11,11 @@ from collections import Counter
 from collections.abc import Iterable
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 from pedidos_bot.config.schema import RestaurantConfig
 from pedidos_bot.domain.menu import Menu, ModifierGroupType, Product
-
-
-class _Model(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+from pedidos_bot.models import FrozenModel
 
 
 class Fulfillment(StrEnum):
@@ -26,12 +23,12 @@ class Fulfillment(StrEnum):
     PICKUP = "pickup"
 
 
-class ModifierChoice(_Model):
+class ModifierChoice(FrozenModel):
     group_id: str
     option_id: str
 
 
-class CartLine(_Model):
+class CartLine(FrozenModel):
     line_id: int
     product_id: str
     qty: int = Field(ge=1)
@@ -53,19 +50,19 @@ class CartLine(_Model):
         )
 
 
-class Address(_Model):
+class Address(FrozenModel):
     text: str = Field(min_length=1)
     details: str = ""
     """Apartment, landmark, gate code, etc."""
 
 
-class Payment(_Model):
+class Payment(FrozenModel):
     method_id: str
     cash_change_for: int | None = Field(default=None, ge=0)
     """Bill the customer will pay with, when the method asks for change."""
 
 
-class Cart(_Model):
+class Cart(FrozenModel):
     lines: tuple[CartLine, ...] = ()
     next_line_id: int = 1
     fulfillment: Fulfillment | None = None
@@ -80,7 +77,7 @@ class Cart(_Model):
         return next((line for line in self.lines if line.line_id == line_id), None)
 
 
-class Totals(_Model):
+class Totals(FrozenModel):
     subtotal: int
     delivery_fee: int
     total: int
@@ -96,7 +93,7 @@ class Pending(StrEnum):
     PAYMENT = "payment"
 
 
-class MissingChoice(_Model):
+class MissingChoice(FrozenModel):
     line_id: int
     product_id: str
     group_id: str
