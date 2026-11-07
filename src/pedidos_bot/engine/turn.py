@@ -14,6 +14,7 @@ from pedidos_bot.config.schema import RestaurantConfig
 from pedidos_bot.domain import cart as carts
 from pedidos_bot.domain.cart import Cart, CartError, CartLine, Fulfillment, ModifierChoice
 from pedidos_bot.domain.money import format_cop
+from pedidos_bot.domain.order import Order, OrderSource, create_order
 from pedidos_bot.engine.actions import (
     Action,
     AddItem,
@@ -68,6 +69,8 @@ class Turn:
         responder: Responder,
     ) -> None:
         self.conversation = conversation
+        self.order: Order | None = None
+        """Set when the customer confirms: the order this turn must save."""
         self._config = config
         self._resolver = resolver
         self._responder = responder
@@ -442,9 +445,11 @@ class Turn:
                 self._event(Event.CHANGE_REQUESTED)
                 self._final = self._responder.text(Msg.ASK_CHANGE)
             elif self._config.modes.shadow:
+                self._place_order()
                 self._event(Event.SENT_TO_STAFF)
                 self._final = self._responder.text(Msg.SENT_TO_STAFF)
             else:
+                self._place_order()
                 self._event(Event.CUSTOMER_CONFIRMED)
                 eta = self._responder.eta(self._cart)
                 self._final = self._responder.text(Msg.CONFIRMED, eta=eta)
@@ -454,6 +459,15 @@ class Turn:
                 self._asking_for_more = True  # "sí" to "anything else?" means there is more
             else:
                 self._update(items_done=True)
+
+    def _place_order(self) -> None:
+        self.order = create_order(
+            self._cart,
+            self._config,
+            source=OrderSource.CHAT,
+            idempotency_key=self.conversation.id,
+            conversation_id=self.conversation.id,
+        )
 
     # --- reply ----------------------------------------------------------------------------
 

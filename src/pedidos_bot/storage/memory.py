@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from pedidos_bot.channels.base import InboundMessage
+from pedidos_bot.domain.order import Order
 from pedidos_bot.engine.conversation import Conversation
 from pedidos_bot.storage.base import BufferedScope, OutboxEntry, TurnScope
 
@@ -18,6 +19,7 @@ class InMemoryRepository:
         self._processed: set[tuple[str, str]] = set()
         self._locks: defaultdict[tuple[str, str], asyncio.Lock] = defaultdict(asyncio.Lock)
         self._outbox: list[OutboxEntry] = []
+        self._orders: dict[str, Order] = {}
 
     @asynccontextmanager
     async def turn(self, inbound: InboundMessage) -> AsyncIterator[TurnScope | None]:
@@ -33,9 +35,16 @@ class InMemoryRepository:
             self._processed.add(message_id)
             self.conversations[key] = scope.conversation
             self._outbox.extend(scope.outbox)
+            for order in scope.orders:
+                previous = self._orders.get(order.idempotency_key)
+                kept_id = {"id": previous.id} if previous else {}
+                self._orders[order.idempotency_key] = order.model_copy(update=kept_id)
 
     async def load(self, channel: str, chat_ref: str) -> Conversation | None:
         return self.conversations.get((channel, chat_ref))
+
+    async def load_order(self, idempotency_key: str) -> Order | None:
+        return self._orders.get(idempotency_key)
 
     async def pending_outbound(self) -> list[OutboxEntry]:
         return list(self._outbox)

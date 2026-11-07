@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from pedidos_bot.channels.base import Channel, InboundMessage, OutboundMessage
+from pedidos_bot.domain.order import Order
 from pedidos_bot.engine.conversation import Conversation
 
 
@@ -29,6 +30,8 @@ class TurnScope(Protocol):
 
     def enqueue(self, entry: OutboxEntry) -> None: ...
 
+    def place_order(self, order: Order) -> None: ...
+
 
 class BufferedScope:
     """Collects a turn's writes, so a repository can commit them all at the end."""
@@ -36,6 +39,7 @@ class BufferedScope:
     def __init__(self, conversation: Conversation) -> None:
         self._conversation = conversation
         self.outbox: list[OutboxEntry] = []
+        self.orders: list[Order] = []
 
     @property
     def conversation(self) -> Conversation:
@@ -47,6 +51,9 @@ class BufferedScope:
     def enqueue(self, entry: OutboxEntry) -> None:
         self.outbox.append(entry)
 
+    def place_order(self, order: Order) -> None:
+        self.orders.append(order)
+
 
 class ConversationRepository(Protocol):
     def turn(self, inbound: InboundMessage) -> AbstractAsyncContextManager[TurnScope | None]:
@@ -54,6 +61,8 @@ class ConversationRepository(Protocol):
         ...
 
     async def load(self, channel: str, chat_ref: str) -> Conversation | None: ...
+
+    async def load_order(self, idempotency_key: str) -> Order | None: ...
 
     async def pending_outbound(self) -> list[OutboxEntry]: ...
 

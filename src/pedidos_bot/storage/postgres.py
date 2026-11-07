@@ -12,6 +12,7 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
 from pedidos_bot.channels.base import InboundMessage, OutboundMessage
+from pedidos_bot.domain.order import Order
 from pedidos_bot.engine.conversation import Conversation
 from pedidos_bot.storage.base import BufferedScope, OutboxEntry, TurnScope
 
@@ -79,6 +80,15 @@ class PostgresRepository:
                        ON CONFLICT (dedupe_key) DO NOTHING""",
                     (entry.dedupe_key, entry.chat_ref, _json(entry.message)),
                 )
+            for order in scope.orders:
+                await connection.execute(
+                    """INSERT INTO orders (id, idempotency_key, conversation_id, data)
+                       VALUES (%s, %s, %s, %s)
+                       ON CONFLICT (idempotency_key) DO UPDATE SET
+                           data = jsonb_set(EXCLUDED.data, '{id}', to_jsonb(orders.id)),
+                           updated_at = now()""",
+                    (order.id, order.idempotency_key, order.conversation_id, _json(order)),
+                )
 
     async def _lock_conversation(
         self, connection: AsyncConnection, inbound: InboundMessage
@@ -107,6 +117,14 @@ class PostgresRepository:
             row = await cursor.fetchone()
         return Conversation.model_validate(row[0]) if row else None
 
+    async def load_order(self, idempotency_key: str) -> Order | None:
+        async with self._pool.connection() as connection:
+            cursor = await connection.execute(
+                "SELECT data FROM orders WHERE idempotency_key = %s", (idempotency_key,)
+            )
+            row = await cursor.fetchone()
+        return Order.model_validate(row[0]) if row else None
+
     async def pending_outbound(self) -> list[OutboxEntry]:
         async with self._pool.connection() as connection:
             cursor = await connection.execute(
@@ -122,5 +140,5 @@ class PostgresRepository:
             )
 
 
-def _json(model: Conversation | OutboundMessage) -> Jsonb:
+def _json(model: Conversation | OutboundMessage | Order) -> Jsonb:
     return Jsonb(model.model_dump(mode="json"))

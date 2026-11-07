@@ -8,6 +8,8 @@ import pytest
 from pedidos_bot.channels.base import ChannelCapabilities, MessageKind
 from pedidos_bot.config.loader import load_restaurant
 from pedidos_bot.config.schema import RestaurantConfig
+from pedidos_bot.domain.money import format_cop
+from pedidos_bot.domain.order import OrderSource, OrderStatus
 from pedidos_bot.engine.actions import AddItem, Confirm, RemoveItem, UpdateItem
 from pedidos_bot.engine.conversation import Conversation
 from pedidos_bot.engine.lifecycle import LifecycleState as S
@@ -350,6 +352,36 @@ async def test_a_failed_turn_leaves_nothing_behind_and_can_be_retried() -> None:
         await chat.send(message)
     assert await chat.repository.load("test", "chat") is None
     assert await chat.repository.pending_outbound() == []
+
+
+@both
+async def test_confirming_places_one_order(s: Scenario) -> None:
+    chat = Chat(s.config)
+    await _to_confirmation(chat, s)
+    conversation_id = chat.conversation.id
+    assert await chat.repository.load_order(conversation_id) is None
+    await chat.say("sí")
+    await chat.say("sí")
+    order = await chat.repository.load_order(conversation_id)
+    assert order is not None
+    assert order.source is OrderSource.CHAT
+    assert order.conversation_id == conversation_id
+    expected = OrderStatus.PENDING_VALIDATION if s.config.modes.shadow else OrderStatus.CONFIRMED
+    assert order.status is expected
+    assert s.total == f"Total: {format_cop(order.totals.total)}"
+
+
+async def test_a_change_after_confirming_revises_the_same_order() -> None:
+    chat = Chat(BURGER)
+    await _to_confirmation(chat, SCENARIOS[0])
+    await chat.say("sí")
+    first = await chat.repository.load_order(chat.conversation.id)
+    await chat.say("una doble")
+    await chat.say("sí")
+    revised = await chat.repository.load_order(chat.conversation.id)
+    assert first is not None and revised is not None
+    assert revised.id == first.id
+    assert len(revised.cart.lines) == 2
 
 
 async def test_a_repeated_yes_after_confirming_does_not_start_over() -> None:

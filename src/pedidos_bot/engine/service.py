@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from pedidos_bot.channels.base import InboundMessage, MessageKind, OutboundMessage
 from pedidos_bot.config.schema import RestaurantConfig
+from pedidos_bot.domain.order import Order
 from pedidos_bot.engine.actions import Action, SetAddress, Unknown
 from pedidos_bot.engine.conversation import Conversation
 from pedidos_bot.engine.lifecycle import LifecycleState
@@ -24,6 +25,7 @@ from pedidos_bot.storage.base import ConversationRepository, OutboxEntry
 class TurnResult:
     conversation: Conversation | None = None
     reply: OutboundMessage | None = None
+    order: Order | None = None
     resolved_without_llm: bool = True
     usage: LLMUsage | None = None
     duplicate: bool = False
@@ -49,6 +51,8 @@ class ConversationService:
             if result.reply is not None:
                 key = f"{inbound.channel}:{inbound.external_id}"
                 scope.enqueue(OutboxEntry(inbound.chat_ref, result.reply, key))
+            if result.order is not None:
+                scope.place_order(result.order)
             return result
 
     async def _process(self, conversation: Conversation, inbound: InboundMessage) -> TurnResult:
@@ -79,7 +83,9 @@ class ConversationService:
     @staticmethod
     def _finish(turn: Turn, *, llm: bool = False, usage: LLMUsage | None = None) -> TurnResult:
         reply = turn.reply()
-        return TurnResult(turn.conversation, reply, resolved_without_llm=not llm, usage=usage)
+        return TurnResult(
+            turn.conversation, reply, turn.order, resolved_without_llm=not llm, usage=usage
+        )
 
 
 def _read_numbered_option(inbound: InboundMessage, conversation: Conversation) -> InboundMessage:

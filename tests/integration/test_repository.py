@@ -7,8 +7,11 @@ import psycopg
 import pytest
 
 from pedidos_bot.channels.base import InboundMessage, OutboundMessage
+from pedidos_bot.domain.cart import Cart, Fulfillment, add_item, set_fulfillment, set_payment
+from pedidos_bot.domain.order import Order, OrderSource, create_order
 from pedidos_bot.storage.base import ConversationRepository, OutboxEntry
 from pedidos_bot.storage.postgres import MIGRATIONS_DIR, PostgresRepository, migrate
+from tests.factories import make_config
 
 
 def _inbound(external_id: str, chat_ref: str = "chat") -> InboundMessage:
@@ -24,6 +27,14 @@ def _inbound(external_id: str, chat_ref: str = "chat") -> InboundMessage:
 
 def _entry(key: str) -> OutboxEntry:
     return OutboxEntry("chat", OutboundMessage(text=key), key)
+
+
+def _order(qty: int) -> Order:
+    config = make_config()
+    cart, _ = add_item(Cart(), config, "classic", qty=qty)
+    cart = set_fulfillment(cart, config, Fulfillment.PICKUP)
+    cart = set_payment(cart, config, "transfer")
+    return create_order(cart, config, source=OrderSource.CHAT, idempotency_key="key")
 
 
 async def _count_turn(repository: ConversationRepository, external_id: str) -> None:
@@ -92,6 +103,33 @@ async def test_sent_messages_leave_the_outbox(repository: ConversationRepository
         scope.enqueue(_entry("k2"))
     await repository.mark_sent("k1")
     assert [e.dedupe_key for e in await repository.pending_outbound()] == ["k2"]
+
+
+async def test_saving_an_order_with_the_same_key_revises_it(
+    repository: ConversationRepository,
+) -> None:
+    first = _order(qty=1)
+    async with repository.turn(_inbound("1")) as scope:
+        assert scope is not None
+        scope.place_order(first)
+    async with repository.turn(_inbound("2")) as scope:
+        assert scope is not None
+        scope.place_order(_order(qty=2))
+    saved = await repository.load_order("key")
+    assert saved is not None
+    assert saved.id == first.id
+    assert saved.cart.lines[0].qty == 2
+
+
+async def test_an_order_from_a_failed_turn_is_not_saved(
+    repository: ConversationRepository,
+) -> None:
+    with pytest.raises(RuntimeError):
+        async with repository.turn(_inbound("1")) as scope:
+            assert scope is not None
+            scope.place_order(_order(qty=1))
+            raise RuntimeError("boom")
+    assert await repository.load_order("key") is None
 
 
 @pytest.mark.postgres
