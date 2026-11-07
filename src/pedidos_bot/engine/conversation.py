@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -43,12 +45,38 @@ class ModifierClarification(_Model):
     note: str = ""
 
 
-Clarification = Annotated[ProductClarification | ModifierClarification, Field(discriminator="kind")]
+class AddressClarification(_Model):
+    """An address given after choosing pickup, waiting for a yes to switch to delivery."""
+
+    kind: Literal["address"] = "address"
+    address: str
+    details: str = ""
+
+
+Clarification = Annotated[
+    ProductClarification | ModifierClarification | AddressClarification,
+    Field(discriminator="kind"),
+]
+
+
+class ResumeOffer(_Model):
+    """The bot asked a returning customer whether to go on."""
+
+    cart: Cart | None = None
+    """The cart to recover in a new conversation; None continues the current one."""
+    message: str = ""
+    """What the customer said on returning, handled if they choose to go on."""
 
 
 class Conversation(_Model):
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    """Identifies this order session; a chat gets a new one for each order."""
     channel: str
     chat_ref: str
+    last_inbound_at: datetime | None = None
+    menu_version: str = ""
+    """The menu this cart was priced with."""
+    resume_offer: ResumeOffer | None = None
     lifecycle: Lifecycle = Lifecycle()
     cart: Cart = Cart()
     follows_confirmed: bool = False

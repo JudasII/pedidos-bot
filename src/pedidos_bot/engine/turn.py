@@ -14,6 +14,7 @@ from pedidos_bot.config.schema import RestaurantConfig
 from pedidos_bot.domain import cart as carts
 from pedidos_bot.domain.cart import Cart, CartError, CartLine, Fulfillment, ModifierChoice
 from pedidos_bot.domain.money import format_cop
+from pedidos_bot.domain.order import Order, OrderSource, create_order
 from pedidos_bot.engine.actions import (
     Action,
     AddItem,
@@ -30,6 +31,7 @@ from pedidos_bot.engine.actions import (
     UpdateItem,
 )
 from pedidos_bot.engine.conversation import (
+    AddressClarification,
     Clarification,
     Conversation,
     ModifierClarification,
@@ -68,6 +70,14 @@ class Turn:
         responder: Responder,
     ) -> None:
         self.conversation = conversation
+        self.actions: tuple[str, ...] = ()
+        """Types of the actions applied, for the logs."""
+        self.notices: list[str] = []
+        """Keys of the messages sent back as notes, for the logs."""
+        self.withdrawn_order: str | None = None
+        """Key of an order staff must no longer act on."""
+        self.order: Order | None = None
+        """Set when the customer confirms: the order this turn must save."""
         self._config = config
         self._resolver = resolver
         self._responder = responder
@@ -96,6 +106,11 @@ class Turn:
     def _note(self, key: Msg, **params: str) -> None:
         """Tell the customer something. Having an answer for them means we understood."""
         self._notes.append(self._responder.text(key, **params))
+        self.notices.append(key.value)
+        self._understood = True
+
+    def resume(self) -> None:
+        """The customer chose how to go on: reply with whatever comes next."""
         self._understood = True
 
     # --- answers to the question just asked -----------------------------------------------
@@ -127,7 +142,16 @@ class Turn:
             return True
         if isinstance(head, ProductClarification):
             return self._answer_product(head, text)
+        if isinstance(head, AddressClarification):
+            return self._answer_address(head, text)
         return self._answer_modifier(head, text)
+
+    def _answer_address(self, head: AddressClarification, text: str) -> bool:
+        if not is_confirm(text):
+            return False
+        self._pop_clarification()
+        self._deliver_to(head.address, head.details)
+        return True
 
     def _answer_product(self, head: ProductClarification, text: str) -> bool:
         item = self._resolver.resolve_item(text)
@@ -193,6 +217,7 @@ class Turn:
 
     def apply(self, actions: Sequence[Action]) -> None:
         """Apply the turn's actions. Leaving the order wins; the customer's decision goes last."""
+        self.actions = tuple(action.type for action in actions)
         if any(isinstance(a, CancelOrder) for a in actions):
             self._cancel()
             return
@@ -204,6 +229,7 @@ class Turn:
             self._apply_one(action)
         reopened = self._cart_changed or len(self.conversation.clarifications) > owed
         if reopened and self.conversation.lifecycle.can(Event.CHANGE_REQUESTED):
+            self._withdraw_order()
             self._event(Event.CHANGE_REQUESTED)
         if self._cart.lines and any(isinstance(a, _SLOT_ACTIONS) for a in actions):
             self._update(items_done=True)
@@ -217,8 +243,13 @@ class Turn:
             self._note(Msg.ALREADY_CONFIRMED)
             self._start_handoff()
             return
+        self._withdraw_order()
         self._event(Event.CANCEL)
         self._final = self._responder.text(Msg.CANCELLED)
+
+    def _withdraw_order(self) -> None:
+        if self.conversation.lifecycle.state is LifecycleState.PENDING_STAFF_CONFIRMATION:
+            self.withdrawn_order = self.conversation.id
 
     def _start_handoff(self) -> None:
         self._event(Event.HANDOFF_REQUESTED)
@@ -390,20 +421,36 @@ class Turn:
         return choices
 
     def _set_fulfillment(self, mode: Fulfillment) -> None:
+        asked = self._take_address_question()
+        if asked is not None and mode is Fulfillment.DELIVERY:
+            self._deliver_to(asked.address, asked.details)
+            return
         try:
             self._set_cart(carts.set_fulfillment(self._cart, self._config, mode))
         except CartError:
             self._note(Msg.FULFILLMENT_UNAVAILABLE)
 
     def _set_address(self, action: SetAddress) -> None:
-        """An address means delivery, even if the customer had chosen pickup before."""
-        # TODO(#41): after choosing pickup this is ambiguous, so ask before switching.
-        try:
-            cart = carts.set_fulfillment(self._cart, self._config, Fulfillment.DELIVERY)
-        except CartError:
+        """An address means delivery. After choosing pickup that is unclear, so ask first."""
+        if Fulfillment.DELIVERY not in carts.enabled_fulfillments(self._config):
             self._note(Msg.FULFILLMENT_UNAVAILABLE)
-            return
-        self._set_cart(carts.set_address(cart, action.address, action.details))
+        elif self._cart.fulfillment is Fulfillment.PICKUP:
+            self._take_address_question()
+            self._queue(AddressClarification(address=action.address, details=action.details))
+        else:
+            self._deliver_to(action.address, action.details)
+
+    def _take_address_question(self) -> AddressClarification | None:
+        """Remove a pending address question: the customer has said something newer."""
+        pending = self.conversation.clarifications
+        asked = next((c for c in pending if isinstance(c, AddressClarification)), None)
+        if asked is not None:
+            self._update(clarifications=tuple(c for c in pending if c is not asked))
+        return asked
+
+    def _deliver_to(self, address: str, details: str) -> None:
+        cart = carts.set_fulfillment(self._cart, self._config, Fulfillment.DELIVERY)
+        self._set_cart(carts.set_address(cart, address, details))
 
     def _set_payment(self, action: SetPayment) -> None:
         best = self._resolver.resolve_payment(action.method).best
@@ -442,9 +489,11 @@ class Turn:
                 self._event(Event.CHANGE_REQUESTED)
                 self._final = self._responder.text(Msg.ASK_CHANGE)
             elif self._config.modes.shadow:
+                self._place_order()
                 self._event(Event.SENT_TO_STAFF)
                 self._final = self._responder.text(Msg.SENT_TO_STAFF)
             else:
+                self._place_order()
                 self._event(Event.CUSTOMER_CONFIRMED)
                 eta = self._responder.eta(self._cart)
                 self._final = self._responder.text(Msg.CONFIRMED, eta=eta)
@@ -454,6 +503,15 @@ class Turn:
                 self._asking_for_more = True  # "sí" to "anything else?" means there is more
             else:
                 self._update(items_done=True)
+
+    def _place_order(self) -> None:
+        self.order = create_order(
+            self._cart,
+            self._config,
+            source=OrderSource.CHAT,
+            idempotency_key=self.conversation.id,
+            conversation_id=self.conversation.id,
+        )
 
     # --- reply ----------------------------------------------------------------------------
 
@@ -501,6 +559,10 @@ class Turn:
 
     def _clarifying_question(self, head: Clarification) -> tuple[str, tuple[QuickReply, ...]]:
         responder = self._responder
+        if isinstance(head, AddressClarification):
+            fee = format_cop(self._config.fulfillment.delivery.fee)
+            text = responder.text(Msg.SWITCH_TO_DELIVERY, address=head.address, fee=fee)
+            return text, responder.yes_no()
         if isinstance(head, ProductClarification):
             names = [responder.product_name(c) for c in head.candidates]
             if len(names) == 1:

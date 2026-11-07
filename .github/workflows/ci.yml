@@ -11,6 +11,20 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pedidos
+          POSTGRES_PASSWORD: pedidos
+          POSTGRES_DB: pedidos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pedidos"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -21,6 +35,9 @@ jobs:
       - run: uv run ruff format --check
       - run: uv run mypy
       - run: uv run pytest
+      - run: uv run pytest -m postgres
+        env:
+          TEST_DATABASE_URL: postgresql://pedidos:pedidos@localhost:5432/pedidos_test
 
   secrets:
     runs-on: ubuntu-latest

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from itertools import count
 
 from pedidos_bot.channels.base import (
@@ -19,7 +19,7 @@ from pedidos_bot.engine.resolver import MenuResolver
 from pedidos_bot.engine.service import ConversationService, TurnResult
 from pedidos_bot.llm.base import LLMProvider
 from pedidos_bot.llm.fake import RuleBasedLLM
-from pedidos_bot.storage.base import deliver_pending
+from pedidos_bot.storage.base import ConversationRepository, deliver_pending
 from pedidos_bot.storage.memory import InMemoryRepository
 
 
@@ -29,14 +29,18 @@ class Chat:
         config: RestaurantConfig,
         llm: LLMProvider | None = None,
         capabilities: ChannelCapabilities = WHATSAPP_LIKE,
+        repository: ConversationRepository | None = None,
+        first_message_id: int = 1,
     ) -> None:
-        self.repository = InMemoryRepository()
+        self.repository = repository or InMemoryRepository()
         self.channel = InMemoryChannel(capabilities)
         self.service = ConversationService(
             config, llm or RuleBasedLLM(MenuResolver(config)), self.repository
         )
-        self._ids = count(1)
+        self._ids = count(first_message_id)
+        self._now = datetime(2026, 11, 6, 12, tzinfo=UTC)
         self.last: TurnResult | None = None
+        self._conversation: Conversation | None = None
 
     def message(
         self, text: str | None, kind: MessageKind = MessageKind.TEXT, external_id: str | None = None
@@ -46,7 +50,7 @@ class Chat:
             external_id=external_id or str(next(self._ids)),
             chat_ref="chat",
             customer_ref="customer",
-            sent_at=datetime(2026, 11, 6, 12, tzinfo=UTC),
+            sent_at=self._now,
             kind=kind,
             text=text,
         )
@@ -56,8 +60,12 @@ class Chat:
         before = len(self.channel.sent)
         await self.channel.receive(message)
         self.last = await self.service.handle(message)
+        self._conversation = self.last.conversation or self._conversation
         await deliver_pending(self.repository, self.channel)
         return "\n".join(sent.message.text for sent in self.channel.sent[before:])
+
+    def wait(self, **delta: float) -> None:
+        self._now += timedelta(**delta)
 
     async def say(self, text: str) -> str:
         return await self.send(self.message(text))
@@ -68,7 +76,8 @@ class Chat:
 
     @property
     def conversation(self) -> Conversation:
-        return self.repository.conversations["test", "chat"]
+        assert self._conversation is not None
+        return self._conversation
 
     @property
     def state(self) -> LifecycleState:
