@@ -91,6 +91,12 @@ class Candidate:
     group_id: str | None = None
     """For modifier options: the group the option belongs to."""
 
+    @property
+    def choice(self) -> ModifierChoice | None:
+        if self.group_id is None:
+            return None
+        return ModifierChoice(group_id=self.group_id, option_id=self.id)
+
 
 @dataclass(frozen=True)
 class Match:
@@ -104,6 +110,11 @@ class Match:
     @property
     def best(self) -> Candidate | None:
         return self.candidates[0] if self.status is MatchStatus.RESOLVED else None
+
+    @property
+    def choice(self) -> ModifierChoice | None:
+        """The modifier this match settled on, if any."""
+        return self.best.choice if self.best else None
 
 
 @dataclass(frozen=True)
@@ -119,12 +130,7 @@ class ItemResolution:
 
     @property
     def choices(self) -> tuple[ModifierChoice, ...]:
-        result = []
-        for match in self.modifiers:
-            best = match.best
-            if best is not None and best.group_id is not None:
-                result.append(ModifierChoice(group_id=best.group_id, option_id=best.id))
-        return tuple(dict.fromkeys(result))
+        return tuple(dict.fromkeys(m.choice for m in self.modifiers if m.choice))
 
     @property
     def unresolved_modifiers(self) -> tuple[Match, ...]:

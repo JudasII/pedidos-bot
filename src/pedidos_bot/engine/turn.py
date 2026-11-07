@@ -192,10 +192,9 @@ class Turn:
         if asked is None:
             return False
         match = self._resolver.resolve_modifier(asked.product_id, text)
-        best = match.best
-        if best is None or best.group_id != asked.group_id or match.leftover:
+        choice = match.choice
+        if choice is None or choice.group_id != asked.group_id or match.leftover:
             return False
-        choice = ModifierChoice(group_id=asked.group_id, option_id=best.id)
         self._add_modifier(asked.line_id, asked.product_id, choice)
         return True
 
@@ -304,24 +303,13 @@ class Turn:
         chosen: Sequence[ModifierChoice] = (),
     ) -> None:
         matches = tuple(modifiers)
-        choices = [
-            *chosen,
-            *(
-                ModifierChoice(group_id=m.best.group_id, option_id=m.best.id)
-                for m in matches
-                if m.best is not None and m.best.group_id is not None
-            ),
-        ]
+        choices = [*chosen, *(m.choice for m in matches if m.choice)]
         unclear = next((m for m in matches if m.status is MatchStatus.AMBIGUOUS), None)
         if unclear is not None:
             self._queue(
                 ModifierClarification(
                     product_id=product_id,
-                    candidates=tuple(
-                        ModifierChoice(group_id=c.group_id, option_id=c.id)
-                        for c in unclear.candidates
-                        if c.group_id is not None
-                    ),
+                    candidates=tuple(c.choice for c in unclear.candidates if c.choice),
                     quantity=quantity,
                     chosen=tuple(choices),
                     modifiers=tuple(
@@ -413,12 +401,12 @@ class Turn:
     def _choices(self, line: CartLine, texts: Iterable[str]) -> list[ModifierChoice]:
         choices = []
         for text in texts:
-            best = self._resolver.resolve_modifier(line.product_id, text).best
-            if best is None or best.group_id is None:
+            choice = self._resolver.resolve_modifier(line.product_id, text).choice
+            if choice is None:
                 name = self._responder.product_name(line.product_id)
                 self._note(Msg.MODIFIER_NOT_FOUND, text=text, product=name)
             else:
-                choices.append(ModifierChoice(group_id=best.group_id, option_id=best.id))
+                choices.append(choice)
         return choices
 
     def _set_fulfillment(self, mode: Fulfillment) -> None:
