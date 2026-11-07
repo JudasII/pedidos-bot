@@ -15,7 +15,14 @@ from zoneinfo import ZoneInfo
 
 from pydantic import Field, field_validator, model_validator
 
-from pedidos_bot.domain.menu import Category, Identifier, Menu, ModifierGroup, Price
+from pedidos_bot.domain.menu import (
+    Category,
+    Identifier,
+    Menu,
+    ModifierGroup,
+    Price,
+    duplicates,
+)
 from pedidos_bot.models import FrozenModel
 
 EnvVarName = Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9_]*$")]
@@ -177,8 +184,7 @@ class RestaurantConfig(FrozenModel):
     def _check_references(self) -> Self:
         # Building the Menu validates product/group/category cross-references.
         menu = self.menu
-        pm_ids = [p.id for p in self.payment_methods]
-        dupes = sorted({i for i in pm_ids if pm_ids.count(i) > 1})
+        dupes = duplicates([p.id for p in self.payment_methods])
         if dupes:
             raise ValueError(f"duplicate payment method ids: {dupes}")
         category_ids = {c.id for c in menu.categories}

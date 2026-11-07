@@ -47,8 +47,7 @@ class ModifierGroup(FrozenModel):
 
     @model_validator(mode="after")
     def _check(self) -> Self:
-        ids = [o.id for o in self.options]
-        dupes = sorted({i for i in ids if ids.count(i) > 1})
+        dupes = duplicates([o.id for o in self.options])
         if dupes:
             raise ValueError(f"duplicate option ids in group '{self.id}': {dupes}")
         if self.type is ModifierGroupType.CHOOSE_ONE and self.max_select not in (None, 1):
@@ -124,7 +123,11 @@ class Menu(FrozenModel):
         return tuple(g for g in self.modifier_groups if g.id in product.modifier_groups)
 
 
+def duplicates(ids: list[str]) -> list[str]:
+    return sorted({i for i in ids if ids.count(i) > 1})
+
+
 def _ensure_unique(kind: str, ids: list[str]) -> None:
-    dupes = sorted({i for i in ids if ids.count(i) > 1})
+    dupes = duplicates(ids)
     if dupes:
         raise ValueError(f"duplicate {kind} ids: {dupes}")

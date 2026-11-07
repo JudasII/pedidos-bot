@@ -103,6 +103,9 @@ class Turn:
         self._cart_changed = True
         self._understood = True
 
+    def _refuse(self, product_id: str) -> None:
+        self._note(Msg.INVALID_CHANGE, product=self._responder.product_name(product_id))
+
     def _note(self, key: Msg, **params: str) -> None:
         """Tell the customer something. Having an answer for them means we understood."""
         self._notes.append(self._responder.text(key, **params))
@@ -324,8 +327,7 @@ class Turn:
                 self._cart, self._config, product_id, quantity, choices, note
             )
         except CartError:
-            name = self._responder.product_name(product_id)
-            self._note(Msg.INVALID_CHANGE, product=name)
+            self._refuse(product_id)
             return
         self._set_cart(cart)
         self._added.append(self._responder.line(line))
@@ -338,7 +340,7 @@ class Turn:
         try:
             cart = carts.update_line(self._cart, self._config, line_id, add_modifiers=[choice])
         except CartError:
-            self._note(Msg.INVALID_CHANGE, product=self._responder.product_name(product_id))
+            self._refuse(product_id)
             return
         self._set_cart(cart)
 
@@ -390,7 +392,7 @@ class Turn:
                 remove_modifiers=remove,
             )
         except CartError:
-            self._note(Msg.INVALID_CHANGE, product=self._responder.product_name(line.product_id))
+            self._refuse(line.product_id)
             return
         self._understood = True
         changed = [item for item in cart.lines if item not in self._cart.lines]
