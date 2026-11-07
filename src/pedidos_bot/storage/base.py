@@ -12,9 +12,13 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Protocol
 
+import structlog
+
 from pedidos_bot.channels.base import Channel, InboundMessage, OutboundMessage
 from pedidos_bot.domain.order import Order
 from pedidos_bot.engine.conversation import Conversation
+
+_logger = structlog.get_logger()
 
 MAX_SEND_ATTEMPTS = 8
 BASE_RETRY_DELAY = timedelta(seconds=2)
@@ -29,6 +33,10 @@ class OutboxEntry:
 
 
 Sender = Callable[[OutboxEntry], Awaitable[None]]
+
+
+def log_given_up(entry: OutboxEntry) -> None:
+    _logger.error("outbound_given_up", dedupe_key=entry.dedupe_key)
 
 
 def retry_delay(attempts: int) -> timedelta:
@@ -46,6 +54,8 @@ class TurnScope(Protocol):
 
     def place_order(self, order: Order) -> None: ...
 
+    def withdraw_order(self, idempotency_key: str) -> None: ...
+
 
 class BufferedScope:
     """Collects a turn's writes, so a repository can commit them all at the end."""
@@ -54,6 +64,7 @@ class BufferedScope:
         self._conversation = conversation
         self.outbox: list[OutboxEntry] = []
         self.orders: list[Order] = []
+        self.withdrawn: list[str] = []
 
     @property
     def conversation(self) -> Conversation:
@@ -67,6 +78,9 @@ class BufferedScope:
 
     def place_order(self, order: Order) -> None:
         self.orders.append(order)
+
+    def withdraw_order(self, idempotency_key: str) -> None:
+        self.withdrawn.append(idempotency_key)
 
 
 class ConversationRepository(Protocol):
@@ -83,8 +97,9 @@ class ConversationRepository(Protocol):
     async def deliver_next(self, send: Sender) -> bool:
         """Attempt the oldest message that is due. False if there is none.
 
-        Only `ChannelError` counts as a failed send. Delivery is at-least-once: after a crash
-        the message is sent again with the same dedupe key.
+        Any exception from `send` counts as a failed attempt, so one bad message can't block
+        the rest. Delivery is at-least-once: after a crash the message is sent again with the
+        same dedupe key.
         """
         ...
 

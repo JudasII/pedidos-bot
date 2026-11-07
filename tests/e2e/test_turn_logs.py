@@ -66,6 +66,12 @@ async def test_customer_data_stays_out_of_the_logs() -> None:
     assert logs[-1]["message"] == "[address]"
 
 
+async def test_a_message_with_an_address_is_masked_whole() -> None:
+    chat = Chat(BURGER)
+    [log] = await _logs(chat, "una doble, a la calle del rio frente al parque, calle 3")
+    assert log["message"] == "[address]"
+
+
 async def test_the_customer_is_logged_as_a_salted_hash() -> None:
     chat = Chat(MINIMAL)
     chat.service = ConversationService(

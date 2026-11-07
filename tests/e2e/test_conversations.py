@@ -384,6 +384,32 @@ async def test_a_change_after_confirming_revises_the_same_order() -> None:
     assert len(revised.cart.lines) == 2
 
 
+async def _sent_to_staff() -> Chat:
+    chat = Chat(BURGER)
+    await _to_confirmation(chat, SCENARIOS[0])
+    await chat.say("sí")
+    return chat
+
+
+async def test_cancelling_while_staff_decide_withdraws_the_order() -> None:
+    chat = await _sent_to_staff()
+    key = chat.conversation.id
+    await chat.say("cancelar")
+    order = await chat.repository.load_order(key)
+    assert order is not None and order.status is OrderStatus.WITHDRAWN
+
+
+async def test_changing_while_staff_decide_withdraws_until_confirmed_again() -> None:
+    chat = await _sent_to_staff()
+    key = chat.conversation.id
+    await chat.say("una doble")
+    order = await chat.repository.load_order(key)
+    assert order is not None and order.status is OrderStatus.WITHDRAWN
+    await chat.say("sí")
+    order = await chat.repository.load_order(key)
+    assert order is not None and order.status is OrderStatus.PENDING_VALIDATION
+
+
 async def test_a_repeated_yes_after_confirming_does_not_start_over() -> None:
     chat = Chat(MINIMAL)
     await _to_confirmation(chat, SCENARIOS[1])
@@ -618,3 +644,28 @@ async def test_an_address_before_choosing_a_mode_still_means_delivery() -> None:
 async def test_an_address_in_a_pickup_only_restaurant_is_refused() -> None:
     chat = Chat(MINIMAL, ScriptedLLM([[SetAddress(address="calle 10")]]))
     assert "No contamos con esa opción" in await chat.say("a la calle 10")
+
+
+async def test_a_new_address_replaces_the_one_being_asked_about() -> None:
+    chat = await _pickup_chosen()
+    await chat.say("a la calle 10")
+    assert "a calle 20?" in await chat.say("a la calle 20")
+    await chat.say("sí")
+    cart = chat.conversation.cart
+    assert cart.address is not None and cart.address.text == "calle 20"
+    assert chat.conversation.clarifications == ()
+
+
+async def test_answering_the_address_question_with_the_mode() -> None:
+    chat = await _pickup_chosen()
+    await chat.say("a la calle 10")
+    await chat.say("domicilio")
+    cart = chat.conversation.cart
+    assert cart.fulfillment is Fulfillment.DELIVERY
+    assert cart.address is not None and cart.address.text == "calle 10"
+
+    chat = await _pickup_chosen()
+    await chat.say("a la calle 10")
+    await chat.say("para recoger")
+    assert chat.conversation.cart.address is None
+    assert chat.conversation.clarifications == ()

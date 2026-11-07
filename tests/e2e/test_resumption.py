@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from pedidos_bot.channels.base import MessageKind
 from pedidos_bot.config.loader import load_restaurant
 from pedidos_bot.engine.lifecycle import LifecycleState as S
 from tests.e2e.harness import Chat
@@ -37,6 +38,60 @@ async def test_saying_yes_handles_the_message_that_was_waiting() -> None:
     assert chat.lines == [("hamburguesa_sencilla", 1, set())]
     assert "Anotado: 1 x Hamburguesa Doble" in await chat.say("sí")
     assert [line[0] for line in chat.lines] == ["hamburguesa_sencilla", "hamburguesa_doble"]
+
+
+async def test_a_button_yes_also_handles_the_waiting_message() -> None:
+    chat = await _chat_with_a_burger()
+    chat.wait(hours=3)
+    await chat.say("una doble")
+    button = chat.message(None, MessageKind.INTERACTIVE_REPLY).model_copy(
+        update={"reply_payload": "Sí"}
+    )
+    await chat.send(button)
+    assert [line[0] for line in chat.lines] == ["hamburguesa_sencilla", "hamburguesa_doble"]
+
+
+async def test_coming_back_with_a_yes_shows_the_summary_again_first() -> None:
+    chat = await _chat_with_a_burger()
+    for text in ("no", "para recoger", "nequi"):
+        await chat.say(text)
+    chat.wait(hours=3)
+    await chat.say("sí")
+    reply = await chat.say("sí")
+    assert chat.state is S.AWAITING_CONFIRMATION
+    assert "Este es tu pedido" in reply and "no te entendí" not in reply
+
+
+async def test_recovering_with_a_yes_shows_the_next_question_not_an_error() -> None:
+    chat = await _chat_with_a_burger()
+    chat.wait(hours=25)
+    await chat.say("sí")
+    assert "no te entendí" not in await chat.say("sí")
+
+
+async def test_a_menu_change_during_a_handoff_is_not_missed() -> None:
+    data = config_dict()
+    chat = Chat(make_config(**data))
+    await chat.say("una clasica")
+    await chat.say("un asesor")
+    data["categories"][0]["products"][0]["price"] += 1000
+    changed = Chat(make_config(**data), repository=chat.repository, first_message_id=100)
+    await changed.say("hola?")
+    assert changed.conversation.menu_version == chat.conversation.menu_version
+
+
+async def test_an_old_offer_is_repriced_if_the_menu_changed_meanwhile() -> None:
+    data = config_dict()
+    chat = Chat(make_config(**data))
+    await chat.say("una clasica")
+    chat.wait(hours=25)
+    await chat.say("hola?")
+    price = chat.conversation.resume_offer.cart.lines[0].unit_price  # type: ignore[union-attr]
+    data["categories"][0]["products"][0]["price"] += 1000
+    changed = Chat(make_config(**data), repository=chat.repository, first_message_id=100)
+    assert "¿Lo retomamos?" in await changed.say("sí")
+    await changed.say("sí")
+    assert changed.conversation.cart.lines[0].unit_price == price + 1000
 
 
 async def test_saying_no_starts_over() -> None:

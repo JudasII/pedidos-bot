@@ -9,8 +9,8 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from pedidos_bot.channels.base import ChannelError, InboundMessage
-from pedidos_bot.domain.order import Order
+from pedidos_bot.channels.base import InboundMessage
+from pedidos_bot.domain.order import Order, OrderStatus
 from pedidos_bot.engine.conversation import Conversation
 from pedidos_bot.storage.base import (
     MAX_SEND_ATTEMPTS,
@@ -18,6 +18,7 @@ from pedidos_bot.storage.base import (
     OutboxEntry,
     Sender,
     TurnScope,
+    log_given_up,
     retry_delay,
 )
 
@@ -56,6 +57,9 @@ class InMemoryRepository:
                 previous = self._orders.get(order.idempotency_key)
                 kept_id = {"id": previous.id} if previous else {}
                 self._orders[order.idempotency_key] = order.model_copy(update=kept_id)
+            for order_key in scope.withdrawn:
+                withdrawn = {"status": OrderStatus.WITHDRAWN}
+                self._orders[order_key] = self._orders[order_key].model_copy(update=withdrawn)
 
     async def load(self, channel: str, chat_ref: str) -> Conversation | None:
         return self.conversations.get((channel, chat_ref))
@@ -74,12 +78,13 @@ class InMemoryRepository:
         due.claimed = True
         try:
             await send(due.entry)
-        except ChannelError:
+        except Exception:
             due.claimed = False
             due.attempts += 1
             due.next_attempt_at = now + retry_delay(due.attempts)
             if due.attempts >= MAX_SEND_ATTEMPTS:
                 self._outbox.remove(due)
+                log_given_up(due.entry)
         else:
             self._outbox.remove(due)
         return True

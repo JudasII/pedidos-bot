@@ -5,10 +5,11 @@ from datetime import UTC, datetime, timedelta
 
 import psycopg
 import pytest
+from structlog.testing import capture_logs
 
 from pedidos_bot.channels.base import ChannelError, InboundMessage, OutboundMessage
 from pedidos_bot.domain.cart import Cart, Fulfillment, add_item, set_fulfillment, set_payment
-from pedidos_bot.domain.order import Order, OrderSource, create_order
+from pedidos_bot.domain.order import Order, OrderSource, OrderStatus, create_order
 from pedidos_bot.storage import base
 from pedidos_bot.storage.base import ConversationRepository, OutboxEntry
 from pedidos_bot.storage.postgres import MIGRATIONS_DIR, PostgresRepository, migrate
@@ -177,6 +178,39 @@ async def test_a_message_that_keeps_failing_is_given_up(
     assert await _pending_keys(repository) == []
 
 
+async def test_giving_up_is_logged(
+    repository: ConversationRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(base, "BASE_RETRY_DELAY", timedelta(0))
+    await _enqueue(repository, "k1")
+
+    async def down(entry: OutboxEntry) -> None:
+        raise ChannelError("down")
+
+    with capture_logs() as logs:
+        while await repository.deliver_next(down):
+            pass
+    assert [log["event"] for log in logs] == ["outbound_given_up"]
+    assert logs[0]["dedupe_key"] == "k1"
+
+
+async def test_an_unexpected_send_error_counts_as_a_failure(
+    repository: ConversationRepository,
+) -> None:
+    await _enqueue(repository, "bad", "good")
+    sent: list[str] = []
+
+    async def send(entry: OutboxEntry) -> None:
+        if entry.dedupe_key == "bad":
+            raise ValueError("a bug in the adapter")
+        sent.append(entry.dedupe_key)
+
+    while await repository.deliver_next(send):
+        pass
+    assert sent == ["good"]
+    assert await _pending_keys(repository) == ["bad"]
+
+
 async def test_two_workers_never_send_the_same_message(
     repository: ConversationRepository,
 ) -> None:
@@ -209,6 +243,19 @@ async def test_saving_an_order_with_the_same_key_revises_it(
     assert saved is not None
     assert saved.id == first.id
     assert saved.cart.lines[0].qty == 2
+
+
+async def test_a_withdrawn_order_keeps_its_data(repository: ConversationRepository) -> None:
+    async with repository.turn(_inbound("1")) as scope:
+        assert scope is not None
+        scope.place_order(_order(qty=1))
+    async with repository.turn(_inbound("2")) as scope:
+        assert scope is not None
+        scope.withdraw_order("key")
+    saved = await repository.load_order("key")
+    assert saved is not None
+    assert saved.status is OrderStatus.WITHDRAWN
+    assert saved.cart.lines[0].qty == 1
 
 
 async def test_an_order_from_a_failed_turn_is_not_saved(

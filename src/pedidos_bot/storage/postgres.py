@@ -11,8 +11,8 @@ from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
-from pedidos_bot.channels.base import ChannelError, InboundMessage, OutboundMessage
-from pedidos_bot.domain.order import Order
+from pedidos_bot.channels.base import InboundMessage, OutboundMessage
+from pedidos_bot.domain.order import Order, OrderStatus
 from pedidos_bot.engine.conversation import Conversation
 from pedidos_bot.storage.base import (
     MAX_SEND_ATTEMPTS,
@@ -20,6 +20,7 @@ from pedidos_bot.storage.base import (
     OutboxEntry,
     Sender,
     TurnScope,
+    log_given_up,
     retry_delay,
 )
 
@@ -56,9 +57,13 @@ class PostgresRepository:
 
     @classmethod
     @asynccontextmanager
-    async def open(cls, database_url: str) -> AsyncIterator[Self]:
-        """Connect and bring the schema up to date."""
-        async with AsyncConnectionPool(database_url, open=False) as pool:
+    async def open(cls, database_url: str, max_connections: int = 20) -> AsyncIterator[Self]:
+        """Connect and bring the schema up to date.
+
+        A turn holds a connection for its whole LLM call, so this caps concurrent turns.
+        """
+        pool = AsyncConnectionPool(database_url, min_size=2, max_size=max_connections, open=False)
+        async with pool:
             async with pool.connection() as connection:
                 await migrate(connection)
             yield cls(pool)
@@ -95,6 +100,13 @@ class PostgresRepository:
                            data = jsonb_set(EXCLUDED.data, '{id}', to_jsonb(orders.id)),
                            updated_at = now()""",
                     (order.id, order.idempotency_key, order.conversation_id, _json(order)),
+                )
+            for key in scope.withdrawn:
+                await connection.execute(
+                    """UPDATE orders SET updated_at = now(),
+                           data = jsonb_set(data, '{status}', to_jsonb(%s::text))
+                       WHERE idempotency_key = %s""",
+                    (OrderStatus.WITHDRAWN.value, key),
                 )
 
     async def _lock_conversation(
@@ -154,12 +166,11 @@ class PostgresRepository:
             if row is None:
                 return False
             row_id, chat_ref, message, dedupe_key, attempts = row
+            entry = OutboxEntry(chat_ref, OutboundMessage.model_validate(message), dedupe_key)
             try:
-                await send(
-                    OutboxEntry(chat_ref, OutboundMessage.model_validate(message), dedupe_key)
-                )
-            except ChannelError:
-                await self._record_failure(connection, row_id, attempts + 1)
+                await send(entry)
+            except Exception:
+                await self._record_failure(connection, entry, row_id, attempts + 1)
             else:
                 await connection.execute(
                     "UPDATE outbox SET sent_at = now() WHERE id = %s", (row_id,)
@@ -167,7 +178,7 @@ class PostgresRepository:
             return True
 
     async def _record_failure(
-        self, connection: AsyncConnection, row_id: int, attempts: int
+        self, connection: AsyncConnection, entry: OutboxEntry, row_id: int, attempts: int
     ) -> None:
         await connection.execute(
             """UPDATE outbox SET attempts = %s, next_attempt_at = now() + %s,
@@ -175,6 +186,8 @@ class PostgresRepository:
                WHERE id = %s""",
             (attempts, retry_delay(attempts), attempts >= MAX_SEND_ATTEMPTS, row_id),
         )
+        if attempts >= MAX_SEND_ATTEMPTS:
+            log_given_up(entry)
 
 
 def _json(model: Conversation | OutboundMessage | Order) -> Jsonb:

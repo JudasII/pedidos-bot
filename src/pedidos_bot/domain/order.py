@@ -21,6 +21,8 @@ class OrderSource(StrEnum):
 class OrderStatus(StrEnum):
     PENDING_VALIDATION = "pending_validation"
     CONFIRMED = "confirmed"
+    WITHDRAWN = "withdrawn"
+    """The customer cancelled or changed it before staff decided: nobody must act on it."""
 
 
 class Order(BaseModel):

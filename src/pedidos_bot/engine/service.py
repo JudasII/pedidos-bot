@@ -46,6 +46,7 @@ class TurnResult:
     conversation: Conversation | None = None
     reply: OutboundMessage | None = None
     order: Order | None = None
+    withdrawn_order: str | None = None
     resolved_without_llm: bool = True
     usage: LLMUsage | None = None
     duplicate: bool = False
@@ -90,6 +91,8 @@ class ConversationService:
                     scope.enqueue(OutboxEntry(inbound.chat_ref, result.reply, key))
                 if result.order is not None:
                     scope.place_order(result.order)
+                if result.withdrawn_order is not None:
+                    scope.withdraw_order(result.withdrawn_order)
         except Exception as exc:
             # The type only: messages of validation errors can quote what the customer wrote.
             log.error("turn_failed", error=type(exc).__name__, latency_ms=_since(started))
@@ -98,7 +101,7 @@ class ConversationService:
             "turn",
             conversation_id=result.conversation.id,
             order_id=result.order.id if result.order else None,
-            message=_loggable(inbound, before),
+            message=_loggable(inbound, before, result.actions),
             state_after=result.conversation.lifecycle.state.value,
             actions=result.actions,
             notices=result.notices,
@@ -110,16 +113,22 @@ class ConversationService:
     async def _process(self, conversation: Conversation, inbound: InboundMessage) -> TurnResult:
         result = await self._respond(conversation, inbound)
         assert result.conversation is not None
-        stamped = result.conversation.model_copy(
+        # A cart keeps the version it was priced with until it is revalidated.
+        updated = result.conversation
+        version = updated.menu_version if updated.cart.lines else ""
+        stamped = updated.model_copy(
             update={
                 "last_inbound_at": inbound.sent_at,
-                "menu_version": self._config.menu_version,
+                "menu_version": version or self._config.menu_version,
             }
         )
         return replace(result, conversation=stamped)
 
     async def _respond(self, conversation: Conversation, inbound: InboundMessage) -> TurnResult:
         offer = conversation.resume_offer
+        if offer is not None and offer.cart is not None and self._menu_changed(conversation):
+            stale = conversation.model_copy(update={"cart": offer.cart, "resume_offer": None})
+            return await self._offer_to_recover(stale, inbound)
         if offer is not None:
             return await self._answer_resume_offer(conversation, offer, inbound)
         comeback = self._comeback(conversation, inbound)
@@ -138,13 +147,14 @@ class ConversationService:
             return Comeback.NONE
         session = self._config.session
         gap = inbound.sent_at - last
-        if conversation.menu_version != self._config.menu_version or gap >= timedelta(
-            hours=session.resume_prompt_hours
-        ):
+        if self._menu_changed(conversation) or gap >= timedelta(hours=session.resume_prompt_hours):
             return Comeback.RECOVER
         if gap >= timedelta(minutes=session.resume_silently_minutes):
             return Comeback.ASK
         return Comeback.NONE
+
+    def _menu_changed(self, conversation: Conversation) -> bool:
+        return conversation.menu_version != self._config.menu_version
 
     def _offer_to_continue(self, conversation: Conversation, inbound: InboundMessage) -> TurnResult:
         items = self._items(conversation.cart.lines)
@@ -196,9 +206,11 @@ class ConversationService:
             return await self._run_turn(waiting, inbound)
         if offer.cart is not None:
             waiting = waiting.model_copy(update={"cart": offer.cart})
-        if offer.message:
-            return await self._run_turn(waiting, inbound.model_copy(update={"text": offer.message}))
-        return self._continue(waiting)
+        held = offer.message
+        if not held or is_confirm(held) or is_deny(held):
+            return self._continue(waiting)  # a bare yes or no was for a question long gone
+        replay = {"kind": MessageKind.TEXT, "text": held, "reply_payload": None}
+        return await self._run_turn(waiting, inbound.model_copy(update=replay))
 
     def _continue(self, conversation: Conversation) -> TurnResult:
         turn = Turn(conversation, self._config, self._resolver, self._responder)
@@ -239,6 +251,7 @@ class ConversationService:
             turn.conversation,
             reply,
             turn.order,
+            turn.withdrawn_order,
             resolved_without_llm=not llm,
             usage=usage,
             actions=turn.actions,
@@ -250,9 +263,9 @@ def _since(started: float) -> int:
     return round((perf_counter() - started) * 1000)
 
 
-def _loggable(inbound: InboundMessage, conversation: Conversation) -> str:
-    """The message, safe to log. An answer to the address question has no pattern to match."""
-    if conversation.asked is Step.ADDRESS:
+def _loggable(inbound: InboundMessage, conversation: Conversation, actions: tuple[str, ...]) -> str:
+    """The message, safe to log. Addresses have no fixed form, so a pattern isn't enough."""
+    if conversation.asked is Step.ADDRESS or "set_address" in actions:
         return "[address]"
     return mask_text(inbound.content)
 

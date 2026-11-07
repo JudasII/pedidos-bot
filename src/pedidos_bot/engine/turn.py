@@ -74,6 +74,8 @@ class Turn:
         """Types of the actions applied, for the logs."""
         self.notices: list[str] = []
         """Keys of the messages sent back as notes, for the logs."""
+        self.withdrawn_order: str | None = None
+        """Key of an order staff must no longer act on."""
         self.order: Order | None = None
         """Set when the customer confirms: the order this turn must save."""
         self._config = config
@@ -227,6 +229,7 @@ class Turn:
             self._apply_one(action)
         reopened = self._cart_changed or len(self.conversation.clarifications) > owed
         if reopened and self.conversation.lifecycle.can(Event.CHANGE_REQUESTED):
+            self._withdraw_order()
             self._event(Event.CHANGE_REQUESTED)
         if self._cart.lines and any(isinstance(a, _SLOT_ACTIONS) for a in actions):
             self._update(items_done=True)
@@ -240,8 +243,13 @@ class Turn:
             self._note(Msg.ALREADY_CONFIRMED)
             self._start_handoff()
             return
+        self._withdraw_order()
         self._event(Event.CANCEL)
         self._final = self._responder.text(Msg.CANCELLED)
+
+    def _withdraw_order(self) -> None:
+        if self.conversation.lifecycle.state is LifecycleState.PENDING_STAFF_CONFIRMATION:
+            self.withdrawn_order = self.conversation.id
 
     def _start_handoff(self) -> None:
         self._event(Event.HANDOFF_REQUESTED)
@@ -413,6 +421,10 @@ class Turn:
         return choices
 
     def _set_fulfillment(self, mode: Fulfillment) -> None:
+        asked = self._take_address_question()
+        if asked is not None and mode is Fulfillment.DELIVERY:
+            self._deliver_to(asked.address, asked.details)
+            return
         try:
             self._set_cart(carts.set_fulfillment(self._cart, self._config, mode))
         except CartError:
@@ -423,9 +435,18 @@ class Turn:
         if Fulfillment.DELIVERY not in carts.enabled_fulfillments(self._config):
             self._note(Msg.FULFILLMENT_UNAVAILABLE)
         elif self._cart.fulfillment is Fulfillment.PICKUP:
+            self._take_address_question()
             self._queue(AddressClarification(address=action.address, details=action.details))
         else:
             self._deliver_to(action.address, action.details)
+
+    def _take_address_question(self) -> AddressClarification | None:
+        """Remove a pending address question: the customer has said something newer."""
+        pending = self.conversation.clarifications
+        asked = next((c for c in pending if isinstance(c, AddressClarification)), None)
+        if asked is not None:
+            self._update(clarifications=tuple(c for c in pending if c is not asked))
+        return asked
 
     def _deliver_to(self, address: str, details: str) -> None:
         cart = carts.set_fulfillment(self._cart, self._config, Fulfillment.DELIVERY)
