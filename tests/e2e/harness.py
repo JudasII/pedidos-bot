@@ -1,0 +1,82 @@
+"""A customer talking to the real engine, with only the LLM replaced."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from itertools import count
+
+from pedidos_bot.channels.base import (
+    ChannelCapabilities,
+    InboundMessage,
+    MessageKind,
+    OutboundMessage,
+)
+from pedidos_bot.channels.memory import WHATSAPP_LIKE, InMemoryChannel
+from pedidos_bot.config.schema import RestaurantConfig
+from pedidos_bot.engine.conversation import Conversation
+from pedidos_bot.engine.lifecycle import LifecycleState
+from pedidos_bot.engine.resolver import MenuResolver
+from pedidos_bot.engine.service import ConversationService, TurnResult
+from pedidos_bot.llm.base import LLMProvider
+from pedidos_bot.llm.fake import RuleBasedLLM
+from pedidos_bot.storage.base import deliver_pending
+from pedidos_bot.storage.memory import InMemoryRepository
+
+
+class Chat:
+    def __init__(
+        self,
+        config: RestaurantConfig,
+        llm: LLMProvider | None = None,
+        capabilities: ChannelCapabilities = WHATSAPP_LIKE,
+    ) -> None:
+        self.repository = InMemoryRepository()
+        self.channel = InMemoryChannel(capabilities)
+        self.service = ConversationService(
+            config, llm or RuleBasedLLM(MenuResolver(config)), self.repository
+        )
+        self._ids = count(1)
+        self.last: TurnResult | None = None
+
+    def message(
+        self, text: str | None, kind: MessageKind = MessageKind.TEXT, external_id: str | None = None
+    ) -> InboundMessage:
+        return InboundMessage(
+            channel="test",
+            external_id=external_id or str(next(self._ids)),
+            chat_ref="chat",
+            customer_ref="customer",
+            sent_at=datetime(2026, 11, 6, 12, tzinfo=UTC),
+            kind=kind,
+            text=text,
+        )
+
+    async def send(self, message: InboundMessage) -> str:
+        """Deliver a message and return what the customer sees ("" if nothing)."""
+        before = len(self.channel.sent)
+        await self.channel.receive(message)
+        self.last = await self.service.handle(message)
+        await deliver_pending(self.repository, self.channel)
+        return "\n".join(sent.message.text for sent in self.channel.sent[before:])
+
+    async def say(self, text: str) -> str:
+        return await self.send(self.message(text))
+
+    @property
+    def reply(self) -> OutboundMessage:
+        return self.channel.sent[-1].message
+
+    @property
+    def conversation(self) -> Conversation:
+        return self.repository.conversations["test", "chat"]
+
+    @property
+    def state(self) -> LifecycleState:
+        return self.conversation.lifecycle.state
+
+    @property
+    def lines(self) -> list[tuple[str, int, set[str]]]:
+        return [
+            (line.product_id, line.qty, {m.option_id for m in line.modifiers})
+            for line in self.conversation.cart.lines
+        ]

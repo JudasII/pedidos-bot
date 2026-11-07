@@ -1,0 +1,431 @@
+{
+  "$defs": {
+    "AddItem": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "add_item",
+          "default": "add_item",
+          "title": "Type",
+          "type": "string"
+        },
+        "product": {
+          "minLength": 1,
+          "title": "Product",
+          "type": "string"
+        },
+        "quantity": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "modifiers": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Modifiers",
+          "type": "array"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "product",
+        "quantity",
+        "modifiers",
+        "note"
+      ],
+      "title": "AddItem",
+      "type": "object"
+    },
+    "AskHuman": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "ask_human",
+          "default": "ask_human",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "AskHuman",
+      "type": "object"
+    },
+    "AskQuestion": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "ask_question",
+          "default": "ask_question",
+          "title": "Type",
+          "type": "string"
+        },
+        "topic": {
+          "default": "other",
+          "enum": [
+            "menu",
+            "hours",
+            "price",
+            "other"
+          ],
+          "title": "Topic",
+          "type": "string"
+        },
+        "product": {
+          "default": "",
+          "title": "Product",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "topic",
+        "product"
+      ],
+      "title": "AskQuestion",
+      "type": "object"
+    },
+    "CancelOrder": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "cancel_order",
+          "default": "cancel_order",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "CancelOrder",
+      "type": "object"
+    },
+    "Confirm": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "confirm",
+          "default": "confirm",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "Confirm",
+      "type": "object"
+    },
+    "Deny": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "deny",
+          "default": "deny",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "Deny",
+      "type": "object"
+    },
+    "Greeting": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "greeting",
+          "default": "greeting",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "Greeting",
+      "type": "object"
+    },
+    "RemoveItem": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "remove_item",
+          "default": "remove_item",
+          "title": "Type",
+          "type": "string"
+        },
+        "product": {
+          "minLength": 1,
+          "title": "Product",
+          "type": "string"
+        },
+        "quantity": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantity"
+        }
+      },
+      "required": [
+        "type",
+        "product",
+        "quantity"
+      ],
+      "title": "RemoveItem",
+      "type": "object"
+    },
+    "SetAddress": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "set_address",
+          "default": "set_address",
+          "title": "Type",
+          "type": "string"
+        },
+        "address": {
+          "minLength": 1,
+          "title": "Address",
+          "type": "string"
+        },
+        "details": {
+          "default": "",
+          "title": "Details",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "address",
+        "details"
+      ],
+      "title": "SetAddress",
+      "type": "object"
+    },
+    "SetFulfillment": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "set_fulfillment",
+          "default": "set_fulfillment",
+          "title": "Type",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "delivery",
+            "pickup"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "mode"
+      ],
+      "title": "SetFulfillment",
+      "type": "object"
+    },
+    "SetPayment": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "set_payment",
+          "default": "set_payment",
+          "title": "Type",
+          "type": "string"
+        },
+        "method": {
+          "minLength": 1,
+          "title": "Method",
+          "type": "string"
+        },
+        "cash_change_for": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cash Change For"
+        }
+      },
+      "required": [
+        "type",
+        "method",
+        "cash_change_for"
+      ],
+      "title": "SetPayment",
+      "type": "object"
+    },
+    "Unknown": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "unknown",
+          "default": "unknown",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "Unknown",
+      "type": "object"
+    },
+    "UpdateItem": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "update_item",
+          "default": "update_item",
+          "title": "Type",
+          "type": "string"
+        },
+        "product": {
+          "minLength": 1,
+          "title": "Product",
+          "type": "string"
+        },
+        "quantity": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantity"
+        },
+        "add_modifiers": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Add Modifiers",
+          "type": "array"
+        },
+        "remove_modifiers": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Remove Modifiers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "product",
+        "quantity",
+        "add_modifiers",
+        "remove_modifiers"
+      ],
+      "title": "UpdateItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "actions": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "add_item": "#/$defs/AddItem",
+            "ask_human": "#/$defs/AskHuman",
+            "ask_question": "#/$defs/AskQuestion",
+            "cancel_order": "#/$defs/CancelOrder",
+            "confirm": "#/$defs/Confirm",
+            "deny": "#/$defs/Deny",
+            "greeting": "#/$defs/Greeting",
+            "remove_item": "#/$defs/RemoveItem",
+            "set_address": "#/$defs/SetAddress",
+            "set_fulfillment": "#/$defs/SetFulfillment",
+            "set_payment": "#/$defs/SetPayment",
+            "unknown": "#/$defs/Unknown",
+            "update_item": "#/$defs/UpdateItem"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/AddItem"
+          },
+          {
+            "$ref": "#/$defs/RemoveItem"
+          },
+          {
+            "$ref": "#/$defs/UpdateItem"
+          },
+          {
+            "$ref": "#/$defs/SetFulfillment"
+          },
+          {
+            "$ref": "#/$defs/SetAddress"
+          },
+          {
+            "$ref": "#/$defs/SetPayment"
+          },
+          {
+            "$ref": "#/$defs/Confirm"
+          },
+          {
+            "$ref": "#/$defs/Deny"
+          },
+          {
+            "$ref": "#/$defs/CancelOrder"
+          },
+          {
+            "$ref": "#/$defs/AskHuman"
+          },
+          {
+            "$ref": "#/$defs/AskQuestion"
+          },
+          {
+            "$ref": "#/$defs/Greeting"
+          },
+          {
+            "$ref": "#/$defs/Unknown"
+          }
+        ]
+      },
+      "title": "Actions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "actions"
+  ],
+  "title": "pedidos-bot NLU actions",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

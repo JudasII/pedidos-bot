@@ -459,6 +459,66 @@ ISSUES: list[Issue] = [
             "If approved: web orders use the same entry point as chat orders, with `source=web`",
         ],
     ),
+    Issue(
+        "Ask before an address switches pickup to delivery",
+        M3,
+        ["type:bug", "area:engine", "priority:p1", "phase:dev"],
+        "A customer who chose pickup and then gives an address is switched to delivery. The PR #38 "
+        "review found this too ambiguous to assume: the address may not mean a change of mode.",
+        [
+            "After choosing pickup, an address makes the bot ask whether to change to delivery",
+            "Yes switches to delivery and keeps the address; no keeps pickup",
+            "An address given before choosing a mode still implies delivery",
+        ],
+    ),
+    Issue(
+        "Tell customers they talk to a bot and can reach a person",
+        M4,
+        ["type:feature", "area:engine", "priority:p1", "phase:dev"],
+        "Customers must know they are not talking to a human and that they can ask for one. "
+        "Restaurants must not lose customers who get frustrated because the model failed, so "
+        "don't wait for the second failure to mention it.",
+        [
+            "The first message says it is an automated assistant, in every restaurant config",
+            "The first 'didn't understand' reply offers a person, before the escalation",
+            "Two tones verified with the two configs",
+        ],
+    ),
+    Issue(
+        "Review 'listo' as the end of the item list",
+        M6,
+        ["type:eval", "area:engine", "priority:p2", "phase:dev"],
+        "At 'anything else?', shortcuts read 'listo' as done and 'si' as wanting more. Without "
+        "clearer signs of intent this may misread customers. Left as is in M2, to check in testing.",
+        [
+            "Evaluation cases cover short answers to 'anything else?'",
+            "Decide from the results whether to keep, change or remove `_DONE_ADDING`",
+        ],
+    ),
+    Issue(
+        "Broaden confirmation phrases and emoji",
+        M6,
+        ["type:feature", "area:engine", "priority:p2", "phase:dev"],
+        "Shortcuts only match a fixed list. Customers combine affirmations ('ok, perfecto', "
+        "'si, dale', 'si, correcto') and answer with emoji such as fire, wink, rock, a heart "
+        "reaction or food and drink, whose meaning can depend on context.",
+        [
+            "Combined affirmations are confirmed without the LLM",
+            "Decide which emoji confirm, and in which contexts, using the evaluation bank",
+            "Phrases keep growing from real conversations",
+        ],
+    ),
+    Issue(
+        "Refine response templates with real chats",
+        P2,
+        ["type:feature", "area:engine", "priority:p2", "phase:pilot"],
+        "Some templates sound robotic or are hard to understand. Refine them once real chats are "
+        "available, without copying real data into the repo.",
+        [
+            "Templates reviewed against anonymized real chats, in both tones",
+            "Rewrite the ones customers misread or that sound robotic",
+        ],
+    ),
 ]
 
 
