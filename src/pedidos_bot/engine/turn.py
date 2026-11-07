@@ -404,10 +404,11 @@ class Turn:
         except CartError:
             self._note(Msg.INVALID_CHANGE, product=self._responder.product_name(line.product_id))
             return
-        self._set_cart(cart)
-        updated = cart.line(line.line_id)
-        if updated is not None:
-            self._note(Msg.UPDATED, item=self._responder.line(updated))
+        self._understood = True
+        changed = [item for item in cart.lines if item not in self._cart.lines]
+        if changed:
+            self._set_cart(cart)
+            self._note(Msg.UPDATED, item=self._responder.line(changed[0]))
 
     def _choices(self, line: CartLine, texts: Iterable[str]) -> list[ModifierChoice]:
         choices = []

@@ -124,8 +124,9 @@ class RuleBasedLLM:
     def _action(self, segment: str) -> Action:
         remove = _REMOVE.match(segment)
         if remove:
-            quantity, product = _quantity(segment[remove.end() :])
-            return RemoveItem(product=product, quantity=quantity if quantity > 1 else None)
+            target = segment[remove.end() :]
+            quantity, product = _quantity(target)
+            return RemoveItem(product=product, quantity=quantity if product != target else None)
         set_quantity = _SET_QUANTITY.match(segment)
         if set_quantity:
             quantity, product = _quantity(set_quantity.group(1))
