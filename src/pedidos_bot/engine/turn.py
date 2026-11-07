@@ -31,6 +31,7 @@ from pedidos_bot.engine.actions import (
     UpdateItem,
 )
 from pedidos_bot.engine.conversation import (
+    AddressClarification,
     Clarification,
     Conversation,
     ModifierClarification,
@@ -139,7 +140,16 @@ class Turn:
             return True
         if isinstance(head, ProductClarification):
             return self._answer_product(head, text)
+        if isinstance(head, AddressClarification):
+            return self._answer_address(head, text)
         return self._answer_modifier(head, text)
+
+    def _answer_address(self, head: AddressClarification, text: str) -> bool:
+        if not is_confirm(text):
+            return False
+        self._pop_clarification()
+        self._deliver_to(head.address, head.details)
+        return True
 
     def _answer_product(self, head: ProductClarification, text: str) -> bool:
         item = self._resolver.resolve_item(text)
@@ -409,14 +419,17 @@ class Turn:
             self._note(Msg.FULFILLMENT_UNAVAILABLE)
 
     def _set_address(self, action: SetAddress) -> None:
-        """An address means delivery, even if the customer had chosen pickup before."""
-        # TODO(#41): after choosing pickup this is ambiguous, so ask before switching.
-        try:
-            cart = carts.set_fulfillment(self._cart, self._config, Fulfillment.DELIVERY)
-        except CartError:
+        """An address means delivery. After choosing pickup that is unclear, so ask first."""
+        if Fulfillment.DELIVERY not in carts.enabled_fulfillments(self._config):
             self._note(Msg.FULFILLMENT_UNAVAILABLE)
-            return
-        self._set_cart(carts.set_address(cart, action.address, action.details))
+        elif self._cart.fulfillment is Fulfillment.PICKUP:
+            self._queue(AddressClarification(address=action.address, details=action.details))
+        else:
+            self._deliver_to(action.address, action.details)
+
+    def _deliver_to(self, address: str, details: str) -> None:
+        cart = carts.set_fulfillment(self._cart, self._config, Fulfillment.DELIVERY)
+        self._set_cart(carts.set_address(cart, address, details))
 
     def _set_payment(self, action: SetPayment) -> None:
         best = self._resolver.resolve_payment(action.method).best
@@ -525,6 +538,10 @@ class Turn:
 
     def _clarifying_question(self, head: Clarification) -> tuple[str, tuple[QuickReply, ...]]:
         responder = self._responder
+        if isinstance(head, AddressClarification):
+            fee = format_cop(self._config.fulfillment.delivery.fee)
+            text = responder.text(Msg.SWITCH_TO_DELIVERY, address=head.address, fee=fee)
+            return text, responder.yes_no()
         if isinstance(head, ProductClarification):
             names = [responder.product_name(c) for c in head.candidates]
             if len(names) == 1:

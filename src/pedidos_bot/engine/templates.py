@@ -17,6 +17,7 @@ class Msg(StrEnum):
     MODIFIER_CHOICE = "modifier_choice"
     MODIFIER_YES_NO = "modifier_yes_no"
     MODIFIER_NOT_FOUND = "modifier_not_found"
+    SWITCH_TO_DELIVERY = "switch_to_delivery"
     NOT_IN_CART = "not_in_cart"
     LINE_UNCLEAR = "line_unclear"
     INVALID_CHANGE = "invalid_change"
@@ -68,6 +69,7 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.MODIFIER_CHOICE: "Para {product}, ¿cuál quieres: {options}?",
         Msg.MODIFIER_YES_NO: "Para {product}, ¿te refieres a {option}?",
         Msg.MODIFIER_NOT_FOUND: "No pude ponerle “{text}” a {product}.",
+        Msg.SWITCH_TO_DELIVERY: "¿Cambiamos a domicilio a {address}? El envío cuesta {fee}.",
         Msg.NOT_IN_CART: "No tengo “{text}” en tu pedido.",
         Msg.LINE_UNCLEAR: "Tienes varias líneas de {product}. ¿Me dices cuál?",
         Msg.INVALID_CHANGE: "Eso no se puede con {product}: revisa la cantidad o las opciones.",
@@ -116,6 +118,7 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.MODIFIER_CHOICE: "Para {product}, ¿cuál desea: {options}?",
         Msg.MODIFIER_YES_NO: "Para {product}, ¿se refiere a {option}?",
         Msg.MODIFIER_NOT_FOUND: "No fue posible agregar “{text}” a {product}.",
+        Msg.SWITCH_TO_DELIVERY: "¿Desea cambiar a domicilio a {address}? El envío cuesta {fee}.",
         Msg.NOT_IN_CART: "No tengo “{text}” en su pedido.",
         Msg.LINE_UNCLEAR: "Tiene varias líneas de {product}. ¿Podría indicarme cuál?",
         Msg.INVALID_CHANGE: "No es posible con {product}: revise la cantidad o las opciones.",

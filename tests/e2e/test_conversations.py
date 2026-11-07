@@ -8,9 +8,10 @@ import pytest
 from pedidos_bot.channels.base import ChannelCapabilities, MessageKind
 from pedidos_bot.config.loader import load_restaurant
 from pedidos_bot.config.schema import RestaurantConfig
+from pedidos_bot.domain.cart import Fulfillment
 from pedidos_bot.domain.money import format_cop
 from pedidos_bot.domain.order import OrderSource, OrderStatus
-from pedidos_bot.engine.actions import AddItem, Confirm, UpdateItem
+from pedidos_bot.engine.actions import AddItem, Confirm, SetAddress, UpdateItem
 from pedidos_bot.engine.conversation import Conversation
 from pedidos_bot.engine.lifecycle import LifecycleState as S
 from pedidos_bot.engine.policy import Step
@@ -563,3 +564,57 @@ async def test_the_conversation_survives_serialization(s: Scenario) -> None:
     await _to_confirmation(chat, s)
     restored = Conversation.model_validate_json(chat.conversation.model_dump_json())
     assert restored == chat.conversation
+
+
+async def _pickup_chosen() -> Chat:
+    chat = Chat(BURGER)
+    for text in ("una doble", "no", "para recoger"):
+        await chat.say(text)
+    return chat
+
+
+async def test_an_address_after_choosing_pickup_asks_first() -> None:
+    chat = await _pickup_chosen()
+    reply = await chat.say("a la calle 10")
+    assert "¿Cambiamos a domicilio a calle 10? El envío cuesta $5.000." in reply
+    assert chat.conversation.cart.fulfillment is Fulfillment.PICKUP
+    assert chat.conversation.cart.address is None
+
+
+async def test_saying_yes_switches_to_delivery_and_keeps_the_address() -> None:
+    chat = await _pickup_chosen()
+    await chat.say("a la calle 10")
+    await chat.say("sí")
+    cart = chat.conversation.cart
+    assert cart.fulfillment is Fulfillment.DELIVERY
+    assert cart.address is not None and cart.address.text == "calle 10"
+
+
+async def test_saying_no_keeps_pickup() -> None:
+    chat = await _pickup_chosen()
+    await chat.say("a la calle 10")
+    await chat.say("no")
+    cart = chat.conversation.cart
+    assert cart.fulfillment is Fulfillment.PICKUP and cart.address is None
+
+
+async def test_the_question_also_applies_at_the_summary() -> None:
+    chat = await _pickup_chosen()
+    await chat.say("nequi")
+    assert chat.state is S.AWAITING_CONFIRMATION
+    await chat.say("a la calle 10")
+    assert chat.state is S.ORDERING
+    await chat.say("no")
+    assert chat.state is S.AWAITING_CONFIRMATION
+    assert "Recoges en el local" in chat.reply.text
+
+
+async def test_an_address_before_choosing_a_mode_still_means_delivery() -> None:
+    chat = Chat(BURGER)
+    await chat.say("una doble, a la calle 10")
+    assert chat.conversation.cart.fulfillment is Fulfillment.DELIVERY
+
+
+async def test_an_address_in_a_pickup_only_restaurant_is_refused() -> None:
+    chat = Chat(MINIMAL, ScriptedLLM([[SetAddress(address="calle 10")]]))
+    assert "No contamos con esa opción" in await chat.say("a la calle 10")

@@ -45,7 +45,18 @@ class ModifierClarification(_Model):
     note: str = ""
 
 
-Clarification = Annotated[ProductClarification | ModifierClarification, Field(discriminator="kind")]
+class AddressClarification(_Model):
+    """An address given after choosing pickup, waiting for a yes to switch to delivery."""
+
+    kind: Literal["address"] = "address"
+    address: str
+    details: str = ""
+
+
+Clarification = Annotated[
+    ProductClarification | ModifierClarification | AddressClarification,
+    Field(discriminator="kind"),
+]
 
 
 class ResumeOffer(_Model):
