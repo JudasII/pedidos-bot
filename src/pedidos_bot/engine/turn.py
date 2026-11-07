@@ -69,6 +69,10 @@ class Turn:
         responder: Responder,
     ) -> None:
         self.conversation = conversation
+        self.actions: tuple[str, ...] = ()
+        """Types of the actions applied, for the logs."""
+        self.notices: list[str] = []
+        """Keys of the messages sent back as notes, for the logs."""
         self.order: Order | None = None
         """Set when the customer confirms: the order this turn must save."""
         self._config = config
@@ -99,6 +103,7 @@ class Turn:
     def _note(self, key: Msg, **params: str) -> None:
         """Tell the customer something. Having an answer for them means we understood."""
         self._notes.append(self._responder.text(key, **params))
+        self.notices.append(key.value)
         self._understood = True
 
     def resume(self) -> None:
@@ -200,6 +205,7 @@ class Turn:
 
     def apply(self, actions: Sequence[Action]) -> None:
         """Apply the turn's actions. Leaving the order wins; the customer's decision goes last."""
+        self.actions = tuple(action.type for action in actions)
         if any(isinstance(a, CancelOrder) for a in actions):
             self._cancel()
             return

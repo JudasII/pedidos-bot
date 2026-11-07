@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import secrets
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from enum import StrEnum
+from time import perf_counter
+
+import structlog
 
 from pedidos_bot.channels.base import InboundMessage, MessageKind, OutboundMessage
 from pedidos_bot.config.schema import RestaurantConfig
@@ -22,7 +26,10 @@ from pedidos_bot.engine.shortcuts import detect, is_confirm, is_deny
 from pedidos_bot.engine.templates import Msg
 from pedidos_bot.engine.turn import Turn
 from pedidos_bot.llm.base import LLMProvider, LLMUsage
+from pedidos_bot.observability.masking import hash_customer, mask_text
 from pedidos_bot.storage.base import ConversationRepository, OutboxEntry
+
+_logger = structlog.get_logger()
 
 
 class Comeback(StrEnum):
@@ -42,31 +49,63 @@ class TurnResult:
     resolved_without_llm: bool = True
     usage: LLMUsage | None = None
     duplicate: bool = False
+    actions: tuple[str, ...] = ()
+    notices: tuple[str, ...] = ()
 
 
 class ConversationService:
     def __init__(
-        self, config: RestaurantConfig, llm: LLMProvider, repository: ConversationRepository
+        self,
+        config: RestaurantConfig,
+        llm: LLMProvider,
+        repository: ConversationRepository,
+        pii_salt: str | None = None,
     ) -> None:
         self._config = config
+        self._pii_salt = pii_salt or secrets.token_hex(16)
+        """Without a configured salt, hashes are still safe but only stable in this process."""
         self._repository = repository
         self._resolver = MenuResolver(config)
         self._responder = Responder(config)
         self._nlu = Nlu(llm, config)
 
     async def handle(self, inbound: InboundMessage) -> TurnResult:
-        async with self._repository.turn(inbound) as scope:
-            if scope is None:
-                return TurnResult(duplicate=True)
-            result = await self._process(scope.conversation, inbound)
-            assert result.conversation is not None
-            scope.save(result.conversation)
-            if result.reply is not None:
-                key = f"{inbound.channel}:{inbound.external_id}"
-                scope.enqueue(OutboxEntry(inbound.chat_ref, result.reply, key))
-            if result.order is not None:
-                scope.place_order(result.order)
-            return result
+        started = perf_counter()
+        log = _logger.bind(
+            turn_id=f"{inbound.channel}:{inbound.external_id}",
+            customer=hash_customer(inbound.customer_ref, self._pii_salt),
+        )
+        try:
+            async with self._repository.turn(inbound) as scope:
+                if scope is None:
+                    log.info("duplicate_message")
+                    return TurnResult(duplicate=True)
+                before = scope.conversation
+                log = log.bind(conversation_id=before.id, state_before=before.lifecycle.state.value)
+                result = await self._process(before, inbound)
+                assert result.conversation is not None
+                scope.save(result.conversation)
+                if result.reply is not None:
+                    key = f"{inbound.channel}:{inbound.external_id}"
+                    scope.enqueue(OutboxEntry(inbound.chat_ref, result.reply, key))
+                if result.order is not None:
+                    scope.place_order(result.order)
+        except Exception as exc:
+            # The type only: messages of validation errors can quote what the customer wrote.
+            log.error("turn_failed", error=type(exc).__name__, latency_ms=_since(started))
+            raise
+        log.info(
+            "turn",
+            conversation_id=result.conversation.id,
+            order_id=result.order.id if result.order else None,
+            message=_loggable(inbound, before),
+            state_after=result.conversation.lifecycle.state.value,
+            actions=result.actions,
+            notices=result.notices,
+            resolved_without_llm=result.resolved_without_llm,
+            latency_ms=_since(started),
+        )
+        return result
 
     async def _process(self, conversation: Conversation, inbound: InboundMessage) -> TurnResult:
         result = await self._respond(conversation, inbound)
@@ -197,8 +236,25 @@ class ConversationService:
     def _finish(turn: Turn, *, llm: bool = False, usage: LLMUsage | None = None) -> TurnResult:
         reply = turn.reply()
         return TurnResult(
-            turn.conversation, reply, turn.order, resolved_without_llm=not llm, usage=usage
+            turn.conversation,
+            reply,
+            turn.order,
+            resolved_without_llm=not llm,
+            usage=usage,
+            actions=turn.actions,
+            notices=tuple(turn.notices),
         )
+
+
+def _since(started: float) -> int:
+    return round((perf_counter() - started) * 1000)
+
+
+def _loggable(inbound: InboundMessage, conversation: Conversation) -> str:
+    """The message, safe to log. An answer to the address question has no pattern to match."""
+    if conversation.asked is Step.ADDRESS:
+        return "[address]"
+    return mask_text(inbound.content)
 
 
 def _with_note(result: TurnResult, note: str) -> TurnResult:

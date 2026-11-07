@@ -19,6 +19,7 @@ from pedidos_bot.config.loader import (
 )
 from pedidos_bot.engine.actions import actions_json_schema
 from pedidos_bot.engine.resolver import MenuResolver
+from pedidos_bot.observability.logging import configure_logging
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -107,6 +108,7 @@ def _chat(args: argparse.Namespace) -> int:
     except ConfigError as exc:
         print(exc, file=sys.stderr)
         return 1
+    configure_logging("ERROR")  # turn logs would get in the way of the chat
     asyncio.run(run_chat(config))
     return 0
 
