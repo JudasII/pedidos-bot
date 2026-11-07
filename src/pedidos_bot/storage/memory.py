@@ -6,11 +6,28 @@ import asyncio
 from collections import defaultdict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
-from pedidos_bot.channels.base import InboundMessage
+from pedidos_bot.channels.base import ChannelError, InboundMessage
 from pedidos_bot.domain.order import Order
 from pedidos_bot.engine.conversation import Conversation
-from pedidos_bot.storage.base import BufferedScope, OutboxEntry, TurnScope
+from pedidos_bot.storage.base import (
+    MAX_SEND_ATTEMPTS,
+    BufferedScope,
+    OutboxEntry,
+    Sender,
+    TurnScope,
+    retry_delay,
+)
+
+
+@dataclass(eq=False)
+class _Pending:
+    entry: OutboxEntry
+    attempts: int = 0
+    next_attempt_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    claimed: bool = False
 
 
 class InMemoryRepository:
@@ -18,7 +35,7 @@ class InMemoryRepository:
         self.conversations: dict[tuple[str, str], Conversation] = {}
         self._processed: set[tuple[str, str]] = set()
         self._locks: defaultdict[tuple[str, str], asyncio.Lock] = defaultdict(asyncio.Lock)
-        self._outbox: list[OutboxEntry] = []
+        self._outbox: list[_Pending] = []
         self._orders: dict[str, Order] = {}
 
     @asynccontextmanager
@@ -34,7 +51,7 @@ class InMemoryRepository:
             yield scope  # an exception here discards the whole turn
             self._processed.add(message_id)
             self.conversations[key] = scope.conversation
-            self._outbox.extend(scope.outbox)
+            self._outbox.extend(_Pending(entry) for entry in scope.outbox)
             for order in scope.orders:
                 previous = self._orders.get(order.idempotency_key)
                 kept_id = {"id": previous.id} if previous else {}
@@ -47,7 +64,22 @@ class InMemoryRepository:
         return self._orders.get(idempotency_key)
 
     async def pending_outbound(self) -> list[OutboxEntry]:
-        return list(self._outbox)
+        return [item.entry for item in self._outbox]
 
-    async def mark_sent(self, dedupe_key: str) -> None:
-        self._outbox = [entry for entry in self._outbox if entry.dedupe_key != dedupe_key]
+    async def deliver_next(self, send: Sender) -> bool:
+        now = datetime.now(UTC)
+        due = next((i for i in self._outbox if i.next_attempt_at <= now and not i.claimed), None)
+        if due is None:
+            return False
+        due.claimed = True
+        try:
+            await send(due.entry)
+        except ChannelError:
+            due.claimed = False
+            due.attempts += 1
+            due.next_attempt_at = now + retry_delay(due.attempts)
+            if due.attempts >= MAX_SEND_ATTEMPTS:
+                self._outbox.remove(due)
+        else:
+            self._outbox.remove(due)
+        return True

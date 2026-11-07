@@ -30,13 +30,14 @@ class Chat:
         llm: LLMProvider | None = None,
         capabilities: ChannelCapabilities = WHATSAPP_LIKE,
         repository: ConversationRepository | None = None,
+        first_message_id: int = 1,
     ) -> None:
         self.repository = repository or InMemoryRepository()
         self.channel = InMemoryChannel(capabilities)
         self.service = ConversationService(
             config, llm or RuleBasedLLM(MenuResolver(config)), self.repository
         )
-        self._ids = count(1)
+        self._ids = count(first_message_id)
         self.last: TurnResult | None = None
         self._conversation: Conversation | None = None
 

@@ -21,7 +21,8 @@ CREATE TABLE outbox (
     attempts integer NOT NULL DEFAULT 0,
     next_attempt_at timestamptz NOT NULL DEFAULT now(),
     sent_at timestamptz,
+    failed_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX outbox_pending ON outbox (next_attempt_at) WHERE sent_at IS NULL;
+CREATE INDEX outbox_pending ON outbox (next_attempt_at) WHERE sent_at IS NULL AND failed_at IS NULL;

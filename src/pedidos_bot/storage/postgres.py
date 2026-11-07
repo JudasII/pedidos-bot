@@ -11,10 +11,17 @@ from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
-from pedidos_bot.channels.base import InboundMessage, OutboundMessage
+from pedidos_bot.channels.base import ChannelError, InboundMessage, OutboundMessage
 from pedidos_bot.domain.order import Order
 from pedidos_bot.engine.conversation import Conversation
-from pedidos_bot.storage.base import BufferedScope, OutboxEntry, TurnScope
+from pedidos_bot.storage.base import (
+    MAX_SEND_ATTEMPTS,
+    BufferedScope,
+    OutboxEntry,
+    Sender,
+    TurnScope,
+    retry_delay,
+)
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 _MIGRATION_LOCK = 7_203_451
@@ -128,16 +135,46 @@ class PostgresRepository:
     async def pending_outbound(self) -> list[OutboxEntry]:
         async with self._pool.connection() as connection:
             cursor = await connection.execute(
-                "SELECT chat_ref, message, dedupe_key FROM outbox WHERE sent_at IS NULL ORDER BY id"
+                "SELECT chat_ref, message, dedupe_key FROM outbox "
+                "WHERE sent_at IS NULL AND failed_at IS NULL ORDER BY id"
             )
             rows = await cursor.fetchall()
         return [OutboxEntry(r[0], OutboundMessage.model_validate(r[1]), r[2]) for r in rows]
 
-    async def mark_sent(self, dedupe_key: str) -> None:
+    async def deliver_next(self, send: Sender) -> bool:
+        # The row stays locked during the send: other workers skip it, and if this process
+        # dies the lock goes away and the message is due again.
         async with self._pool.connection() as connection:
-            await connection.execute(
-                "UPDATE outbox SET sent_at = now() WHERE dedupe_key = %s", (dedupe_key,)
+            cursor = await connection.execute(
+                """SELECT id, chat_ref, message, dedupe_key, attempts FROM outbox
+                   WHERE sent_at IS NULL AND failed_at IS NULL AND next_attempt_at <= now()
+                   ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED"""
             )
+            row = await cursor.fetchone()
+            if row is None:
+                return False
+            row_id, chat_ref, message, dedupe_key, attempts = row
+            try:
+                await send(
+                    OutboxEntry(chat_ref, OutboundMessage.model_validate(message), dedupe_key)
+                )
+            except ChannelError:
+                await self._record_failure(connection, row_id, attempts + 1)
+            else:
+                await connection.execute(
+                    "UPDATE outbox SET sent_at = now() WHERE id = %s", (row_id,)
+                )
+            return True
+
+    async def _record_failure(
+        self, connection: AsyncConnection, row_id: int, attempts: int
+    ) -> None:
+        await connection.execute(
+            """UPDATE outbox SET attempts = %s, next_attempt_at = now() + %s,
+                   failed_at = CASE WHEN %s THEN now() END
+               WHERE id = %s""",
+            (attempts, retry_delay(attempts), attempts >= MAX_SEND_ATTEMPTS, row_id),
+        )
 
 
 def _json(model: Conversation | OutboundMessage | Order) -> Jsonb:

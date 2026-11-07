@@ -1,14 +1,15 @@
 """The repository contract, run against every implementation."""
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import psycopg
 import pytest
 
-from pedidos_bot.channels.base import InboundMessage, OutboundMessage
+from pedidos_bot.channels.base import ChannelError, InboundMessage, OutboundMessage
 from pedidos_bot.domain.cart import Cart, Fulfillment, add_item, set_fulfillment, set_payment
 from pedidos_bot.domain.order import Order, OrderSource, create_order
+from pedidos_bot.storage import base
 from pedidos_bot.storage.base import ConversationRepository, OutboxEntry
 from pedidos_bot.storage.postgres import MIGRATIONS_DIR, PostgresRepository, migrate
 from tests.factories import make_config
@@ -96,13 +97,102 @@ async def test_conversations_are_independent(repository: ConversationRepository)
         assert scope is not None and not scope.conversation.greeted
 
 
-async def test_sent_messages_leave_the_outbox(repository: ConversationRepository) -> None:
-    async with repository.turn(_inbound("1")) as scope:
+async def _enqueue(repository: ConversationRepository, *keys: str) -> None:
+    async with repository.turn(_inbound("-".join(keys))) as scope:
         assert scope is not None
-        scope.enqueue(_entry("k1"))
-        scope.enqueue(_entry("k2"))
-    await repository.mark_sent("k1")
-    assert [e.dedupe_key for e in await repository.pending_outbound()] == ["k2"]
+        for key in keys:
+            scope.enqueue(_entry(key))
+
+
+async def _pending_keys(repository: ConversationRepository) -> list[str]:
+    return [entry.dedupe_key for entry in await repository.pending_outbound()]
+
+
+async def test_sent_messages_leave_the_outbox_in_order(repository: ConversationRepository) -> None:
+    await _enqueue(repository, "k1", "k2")
+    sent: list[str] = []
+
+    async def send(entry: OutboxEntry) -> None:
+        sent.append(entry.dedupe_key)
+
+    assert await repository.deliver_next(send)
+    assert await _pending_keys(repository) == ["k2"]
+    assert await repository.deliver_next(send)
+    assert not await repository.deliver_next(send)
+    assert sent == ["k1", "k2"]
+
+
+async def test_a_failed_send_waits_and_does_not_block_the_others(
+    repository: ConversationRepository,
+) -> None:
+    await _enqueue(repository, "bad", "good")
+    sent: list[str] = []
+
+    async def send(entry: OutboxEntry) -> None:
+        if entry.dedupe_key == "bad":
+            raise ChannelError("down")
+        sent.append(entry.dedupe_key)
+
+    assert await repository.deliver_next(send)
+    assert await repository.deliver_next(send)
+    assert not await repository.deliver_next(send)  # "bad" is not due yet
+    assert sent == ["good"]
+    assert await _pending_keys(repository) == ["bad"]
+
+
+async def test_a_failed_send_is_retried_when_due(
+    repository: ConversationRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(base, "BASE_RETRY_DELAY", timedelta(0))
+    await _enqueue(repository, "k1")
+    attempts = 0
+
+    async def flaky(entry: OutboxEntry) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ChannelError("down")
+
+    assert await repository.deliver_next(flaky)
+    assert await repository.deliver_next(flaky)
+    assert attempts == 2
+    assert await _pending_keys(repository) == []
+
+
+async def test_a_message_that_keeps_failing_is_given_up(
+    repository: ConversationRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(base, "BASE_RETRY_DELAY", timedelta(0))
+    await _enqueue(repository, "k1")
+    attempts = 0
+
+    async def down(entry: OutboxEntry) -> None:
+        nonlocal attempts
+        attempts += 1
+        raise ChannelError("down")
+
+    while await repository.deliver_next(down):
+        pass
+    assert attempts == base.MAX_SEND_ATTEMPTS
+    assert await _pending_keys(repository) == []
+
+
+async def test_two_workers_never_send_the_same_message(
+    repository: ConversationRepository,
+) -> None:
+    await _enqueue(repository, "k1", "k2", "k3", "k4")
+    sent: list[str] = []
+
+    async def slow(entry: OutboxEntry) -> None:
+        await asyncio.sleep(0.01)
+        sent.append(entry.dedupe_key)
+
+    async def worker() -> None:
+        while await repository.deliver_next(slow):
+            pass
+
+    await asyncio.gather(worker(), worker())
+    assert sorted(sent) == ["k1", "k2", "k3", "k4"]
 
 
 async def test_saving_an_order_with_the_same_key_revises_it(

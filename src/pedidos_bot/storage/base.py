@@ -6,13 +6,19 @@ conversation and commits state and outbound messages together, or not at all.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Protocol
 
 from pedidos_bot.channels.base import Channel, InboundMessage, OutboundMessage
 from pedidos_bot.domain.order import Order
 from pedidos_bot.engine.conversation import Conversation
+
+MAX_SEND_ATTEMPTS = 8
+BASE_RETRY_DELAY = timedelta(seconds=2)
+MAX_RETRY_DELAY = timedelta(minutes=5)
 
 
 @dataclass(frozen=True)
@@ -20,6 +26,14 @@ class OutboxEntry:
     chat_ref: str
     message: OutboundMessage
     dedupe_key: str
+
+
+Sender = Callable[[OutboxEntry], Awaitable[None]]
+
+
+def retry_delay(attempts: int) -> timedelta:
+    """Wait before the next try, after `attempts` failures: doubles, up to `MAX_RETRY_DELAY`."""
+    return min(BASE_RETRY_DELAY * (1 << (attempts - 1)), MAX_RETRY_DELAY)
 
 
 class TurnScope(Protocol):
@@ -66,13 +80,24 @@ class ConversationRepository(Protocol):
 
     async def pending_outbound(self) -> list[OutboxEntry]: ...
 
-    async def mark_sent(self, dedupe_key: str) -> None: ...
+    async def deliver_next(self, send: Sender) -> bool:
+        """Attempt the oldest message that is due. False if there is none.
+
+        Only `ChannelError` counts as a failed send. Delivery is at-least-once: after a crash
+        the message is sent again with the same dedupe key.
+        """
+        ...
 
 
 async def deliver_pending(repository: ConversationRepository, channel: Channel) -> int:
-    """Send everything in the outbox, oldest first. Returns how many were sent."""
-    entries = await repository.pending_outbound()
-    for entry in entries:
+    """Attempt everything that is due. A failed message waits for its retry; the rest go on."""
+    sent = 0
+
+    async def send(entry: OutboxEntry) -> None:
+        nonlocal sent
         await channel.send(entry.chat_ref, entry.message, dedupe_key=entry.dedupe_key)
-        await repository.mark_sent(entry.dedupe_key)
-    return len(entries)
+        sent += 1
+
+    while await repository.deliver_next(send):
+        pass
+    return sent
