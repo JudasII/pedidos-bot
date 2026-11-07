@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from itertools import count
 
 from pedidos_bot.channels.base import (
@@ -38,6 +38,7 @@ class Chat:
             config, llm or RuleBasedLLM(MenuResolver(config)), self.repository
         )
         self._ids = count(first_message_id)
+        self._now = datetime(2026, 11, 6, 12, tzinfo=UTC)
         self.last: TurnResult | None = None
         self._conversation: Conversation | None = None
 
@@ -49,7 +50,7 @@ class Chat:
             external_id=external_id or str(next(self._ids)),
             chat_ref="chat",
             customer_ref="customer",
-            sent_at=datetime(2026, 11, 6, 12, tzinfo=UTC),
+            sent_at=self._now,
             kind=kind,
             text=text,
         )
@@ -62,6 +63,9 @@ class Chat:
         self._conversation = self.last.conversation or self._conversation
         await deliver_pending(self.repository, self.channel)
         return "\n".join(sent.message.text for sent in self.channel.sent[before:])
+
+    def wait(self, **delta: float) -> None:
+        self._now += timedelta(**delta)
 
     async def say(self, text: str) -> str:
         return await self.send(self.message(text))

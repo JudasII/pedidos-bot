@@ -42,6 +42,9 @@ class Msg(StrEnum):
     ALREADY_CONFIRMED = "already_confirmed"
     CANCELLED = "cancelled"
     HANDOFF = "handoff"
+    RESUME_PROMPT = "resume_prompt"
+    RECOVER_PROMPT = "recover_prompt"
+    NO_LONGER_AVAILABLE = "no_longer_available"
     NOT_UNDERSTOOD = "not_understood"
     QUESTION_UNKNOWN = "question_unknown"
     HOURS = "hours"
@@ -90,6 +93,9 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.ALREADY_CONFIRMED: "Tu pedido ya está confirmado.",
         Msg.CANCELLED: "Listo, cancelé tu pedido. Aquí estamos cuando quieras.",
         Msg.HANDOFF: "Ya te paso con alguien del equipo, dame un momento.",
+        Msg.RESUME_PROMPT: "¿Seguimos con tu pedido de {items}?",
+        Msg.RECOVER_PROMPT: "Tenías un pedido sin terminar: {items}. ¿Lo retomamos?",
+        Msg.NO_LONGER_AVAILABLE: "Ya no tenemos {items}.",
         Msg.NOT_UNDERSTOOD: "Perdón, no te entendí. ¿Me lo dices de otra forma?",
         Msg.QUESTION_UNKNOWN: "Eso no te lo sé responder.",
         Msg.HOURS: "Nuestro horario: {hours}.",
@@ -135,6 +141,9 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.ALREADY_CONFIRMED: "Su pedido ya está confirmado.",
         Msg.CANCELLED: "Su pedido fue cancelado. Quedamos atentos.",
         Msg.HANDOFF: "Le comunico con alguien del equipo, un momento por favor.",
+        Msg.RESUME_PROMPT: "¿Continuamos con su pedido de {items}?",
+        Msg.RECOVER_PROMPT: "Tenía un pedido sin terminar: {items}. ¿Desea retomarlo?",
+        Msg.NO_LONGER_AVAILABLE: "Ya no contamos con {items}.",
         Msg.NOT_UNDERSTOOD: "Disculpe, no le entendí. ¿Podría decirlo de otra forma?",
         Msg.QUESTION_UNKNOWN: "No tengo esa información.",
         Msg.HOURS: "Nuestro horario: {hours}.",

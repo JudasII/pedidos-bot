@@ -247,6 +247,24 @@ def set_payment(
     return cart.model_copy(update={"payment": Payment(method_id=method.id, cash_change_for=change)})
 
 
+def revalidate(cart: Cart, config: RestaurantConfig) -> tuple[Cart, tuple[CartLine, ...]]:
+    """Rebuild a saved cart against the current config. Returns it and the lines it lost."""
+    fresh = Cart(address=cart.address)
+    dropped = []
+    for line in cart.lines:
+        try:
+            fresh, _ = add_item(fresh, config, line.product_id, line.qty, line.modifiers, line.note)
+        except CartError:
+            dropped.append(line)
+    offered = cart.fulfillment in enabled_fulfillments(config)
+    method = config.payment_method(cart.payment.method_id) if cart.payment else None
+    update = {
+        "fulfillment": cart.fulfillment if offered else None,
+        "payment": cart.payment if method else None,
+    }
+    return fresh.model_copy(update=update), tuple(dropped)
+
+
 # --- queries ------------------------------------------------------------------------------
 
 

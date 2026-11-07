@@ -7,6 +7,7 @@ tone, menu and business rules. The core never hardcodes any of it.
 
 from __future__ import annotations
 
+import hashlib
 from enum import StrEnum
 from functools import cached_property
 from typing import Annotated, Literal, Self
@@ -200,6 +201,11 @@ class RestaurantConfig(_Model):
     @cached_property
     def menu(self) -> Menu:
         return Menu(modifier_groups=self.modifier_groups, categories=self.categories)
+
+    @cached_property
+    def menu_version(self) -> str:
+        """Changes whenever anything in the menu does, so saved carts can be revalidated."""
+        return hashlib.sha256(self.menu.model_dump_json().encode()).hexdigest()[:16]
 
     @property
     def max_qty_per_line(self) -> int:

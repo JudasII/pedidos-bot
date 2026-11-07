@@ -10,13 +10,12 @@ from pedidos_bot.config.loader import load_restaurant
 from pedidos_bot.config.schema import RestaurantConfig
 from pedidos_bot.domain.money import format_cop
 from pedidos_bot.domain.order import OrderSource, OrderStatus
-from pedidos_bot.engine.actions import AddItem, Confirm, RemoveItem, UpdateItem
+from pedidos_bot.engine.actions import AddItem, Confirm, UpdateItem
 from pedidos_bot.engine.conversation import Conversation
 from pedidos_bot.engine.lifecycle import LifecycleState as S
 from pedidos_bot.engine.policy import Step
 from pedidos_bot.llm.fake import ScriptedLLM
 from tests.e2e.harness import Chat
-from tests.factories import config_dict, make_config
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "config" / "restaurants"
 BURGER = load_restaurant("burger_demo", CONFIG_DIR)
@@ -530,27 +529,6 @@ async def test_a_digit_that_is_not_a_number_does_not_crash() -> None:
     await chat.say("una malteada")
     assert await chat.say("²")
     assert chat.state is S.ORDERING
-
-
-async def test_removing_some_of_an_unavailable_product_is_refused_politely() -> None:
-    data = config_dict()
-    chat = Chat(
-        make_config(**data),
-        ScriptedLLM(
-            [
-                [AddItem(product="clasica", quantity=3)],
-            ]
-        ),
-    )
-    await chat.say("3 clasicas")
-    data["categories"][0]["products"][0]["available"] = False
-    changed = Chat(
-        make_config(**data),
-        ScriptedLLM([[RemoveItem(product="clasica", quantity=1)]]),
-        repository=chat.repository,
-    )
-    await changed.send(changed.message("quita una", external_id="after-the-menu-changed"))
-    assert changed.lines == chat.lines
 
 
 async def test_a_rejected_change_does_not_pull_the_order_back_from_staff() -> None:

@@ -101,6 +101,10 @@ class Turn:
         self._notes.append(self._responder.text(key, **params))
         self._understood = True
 
+    def resume(self) -> None:
+        """The customer chose how to go on: reply with whatever comes next."""
+        self._understood = True
+
     # --- answers to the question just asked -----------------------------------------------
 
     def answer_pending(self, text: str) -> bool:
