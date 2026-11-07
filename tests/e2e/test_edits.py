@@ -1,17 +1,13 @@
 """Changing an order in progress. Added after mutation testing found these paths unguarded."""
 
-from pathlib import Path
-
 from pedidos_bot.channels.base import MessageKind
-from pedidos_bot.config.loader import load_restaurant
 from pedidos_bot.engine.actions import AddItem, Deny, RemoveItem, Unknown, UpdateItem
 from pedidos_bot.engine.lifecycle import LifecycleState as S
 from pedidos_bot.llm.fake import ScriptedLLM
 from tests.e2e.harness import Chat
-from tests.factories import config_dict, make_config
+from tests.factories import config_dict, make_config, sample_config
 
-CONFIG_DIR = Path(__file__).resolve().parents[2] / "config" / "restaurants"
-BURGER = load_restaurant("burger_demo", CONFIG_DIR)
+BURGER = sample_config("burger_demo")
 SENCILLA = "hamburguesa_sencilla"
 
 

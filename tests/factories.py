@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import copy
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
+from pedidos_bot.channels.base import InboundMessage
+from pedidos_bot.config.loader import load_restaurant
 from pedidos_bot.config.schema import RestaurantConfig
+
+CONFIG_DIR = Path(__file__).resolve().parents[1] / "config" / "restaurants"
 
 _BASE: dict[str, Any] = {
     "restaurant": {
@@ -97,3 +103,19 @@ def config_dict(**overrides: Any) -> dict[str, Any]:
 
 def make_config(**overrides: Any) -> RestaurantConfig:
     return RestaurantConfig.model_validate(config_dict(**overrides))
+
+
+def sample_config(restaurant_id: str) -> RestaurantConfig:
+    """One of the shipped configs."""
+    return load_restaurant(restaurant_id, CONFIG_DIR)
+
+
+def make_inbound(**fields: Any) -> InboundMessage:
+    base = {
+        "channel": "test",
+        "external_id": "1",
+        "chat_ref": "chat",
+        "customer_ref": "customer",
+        "sent_at": datetime(2026, 11, 6, 12, tzinfo=UTC),
+    }
+    return InboundMessage.model_validate(base | fields)

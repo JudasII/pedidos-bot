@@ -1,15 +1,11 @@
 """A customer who comes back later. Customer wording is Spanish on purpose."""
 
-from pathlib import Path
-
 from pedidos_bot.channels.base import MessageKind
-from pedidos_bot.config.loader import load_restaurant
 from pedidos_bot.engine.lifecycle import LifecycleState as S
 from tests.e2e.harness import Chat
-from tests.factories import config_dict, make_config
+from tests.factories import config_dict, make_config, sample_config
 
-CONFIG_DIR = Path(__file__).resolve().parents[2] / "config" / "restaurants"
-BURGER = load_restaurant("burger_demo", CONFIG_DIR)
+BURGER = sample_config("burger_demo")
 
 
 async def _chat_with_a_burger() -> Chat:

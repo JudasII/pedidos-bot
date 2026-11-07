@@ -1,7 +1,7 @@
 """The repository contract, run against every implementation."""
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 import psycopg
 import pytest
@@ -13,18 +13,11 @@ from pedidos_bot.domain.order import Order, OrderSource, OrderStatus, create_ord
 from pedidos_bot.storage import base
 from pedidos_bot.storage.base import ConversationRepository, OutboxEntry
 from pedidos_bot.storage.postgres import MIGRATIONS_DIR, PostgresRepository, migrate
-from tests.factories import make_config
+from tests.factories import make_config, make_inbound
 
 
 def _inbound(external_id: str, chat_ref: str = "chat") -> InboundMessage:
-    return InboundMessage(
-        channel="test",
-        external_id=external_id,
-        chat_ref=chat_ref,
-        customer_ref="customer",
-        sent_at=datetime(2026, 11, 6, tzinfo=UTC),
-        text="hola",
-    )
+    return make_inbound(external_id=external_id, chat_ref=chat_ref, text="hola")
 
 
 def _entry(key: str) -> OutboxEntry:

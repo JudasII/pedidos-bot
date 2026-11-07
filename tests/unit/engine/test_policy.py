@@ -1,8 +1,5 @@
 """What the bot asks next, from the sample configs."""
 
-from pathlib import Path
-
-from pedidos_bot.config.loader import load_restaurant
 from pedidos_bot.domain.cart import (
     Cart,
     Fulfillment,
@@ -13,10 +10,10 @@ from pedidos_bot.domain.cart import (
     set_payment,
 )
 from pedidos_bot.engine.policy import Step, next_step, upsell_categories
+from tests.factories import sample_config
 
-CONFIG_DIR = Path(__file__).resolve().parents[3] / "config" / "restaurants"
-BURGER = load_restaurant("burger_demo", CONFIG_DIR)
-MINIMAL = load_restaurant("minimal_demo", CONFIG_DIR)
+BURGER = sample_config("burger_demo")
+MINIMAL = sample_config("minimal_demo")
 
 
 def _with_burger() -> Cart:

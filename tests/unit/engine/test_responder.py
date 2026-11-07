@@ -1,12 +1,9 @@
 """Rendered text, verified with both sample configs and their tones."""
 
-from pathlib import Path
-
 import pytest
 
 from pedidos_bot.channels.base import OutboundMessage, degrade
 from pedidos_bot.channels.memory import WHATSAPP_LIKE
-from pedidos_bot.config.loader import load_restaurant
 from pedidos_bot.config.schema import ToneStyle
 from pedidos_bot.domain.cart import (
     Cart,
@@ -19,10 +16,10 @@ from pedidos_bot.domain.cart import (
 )
 from pedidos_bot.engine.responder import Responder, join_options
 from pedidos_bot.engine.templates import TEMPLATES, Msg
+from tests.factories import sample_config
 
-CONFIG_DIR = Path(__file__).resolve().parents[3] / "config" / "restaurants"
-BURGER = load_restaurant("burger_demo", CONFIG_DIR)
-MINIMAL = load_restaurant("minimal_demo", CONFIG_DIR)
+BURGER = sample_config("burger_demo")
+MINIMAL = sample_config("minimal_demo")
 
 
 def test_every_tone_defines_every_message() -> None:
