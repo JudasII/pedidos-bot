@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Annotated, Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -47,6 +48,8 @@ Clarification = Annotated[ProductClarification | ModifierClarification, Field(di
 
 
 class Conversation(_Model):
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    """Identifies this order session; a chat gets a new one for each order."""
     channel: str
     chat_ref: str
     lifecycle: Lifecycle = Lifecycle()

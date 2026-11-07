@@ -348,7 +348,7 @@ async def test_a_failed_turn_leaves_nothing_behind_and_can_be_retried() -> None:
     message = chat.message("una sencilla", external_id="same")
     with pytest.raises(AssertionError):
         await chat.send(message)
-    assert ("test", "chat") not in chat.repository.conversations
+    assert await chat.repository.load("test", "chat") is None
     assert await chat.repository.pending_outbound() == []
 
 
@@ -512,9 +512,12 @@ async def test_removing_some_of_an_unavailable_product_is_refused_politely() -> 
     )
     await chat.say("3 clasicas")
     data["categories"][0]["products"][0]["available"] = False
-    changed = Chat(make_config(**data), ScriptedLLM([[RemoveItem(product="clasica", quantity=1)]]))
-    changed.repository.conversations = chat.repository.conversations
-    await changed.say("quita una")
+    changed = Chat(
+        make_config(**data),
+        ScriptedLLM([[RemoveItem(product="clasica", quantity=1)]]),
+        repository=chat.repository,
+    )
+    await changed.send(changed.message("quita una", external_id="after-the-menu-changed"))
     assert changed.lines == chat.lines
 
 

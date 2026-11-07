@@ -30,10 +30,30 @@ class TurnScope(Protocol):
     def enqueue(self, entry: OutboxEntry) -> None: ...
 
 
+class BufferedScope:
+    """Collects a turn's writes, so a repository can commit them all at the end."""
+
+    def __init__(self, conversation: Conversation) -> None:
+        self._conversation = conversation
+        self.outbox: list[OutboxEntry] = []
+
+    @property
+    def conversation(self) -> Conversation:
+        return self._conversation
+
+    def save(self, conversation: Conversation) -> None:
+        self._conversation = conversation
+
+    def enqueue(self, entry: OutboxEntry) -> None:
+        self.outbox.append(entry)
+
+
 class ConversationRepository(Protocol):
     def turn(self, inbound: InboundMessage) -> AbstractAsyncContextManager[TurnScope | None]:
         """Open the turn for `inbound`. Yields None if the message was already processed."""
         ...
+
+    async def load(self, channel: str, chat_ref: str) -> Conversation | None: ...
 
     async def pending_outbound(self) -> list[OutboxEntry]: ...
 
