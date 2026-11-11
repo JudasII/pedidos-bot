@@ -115,7 +115,8 @@ class ConversationService:
         assert result.conversation is not None
         # A cart keeps the version it was priced with until it is revalidated.
         updated = result.conversation
-        version = updated.menu_version if updated.cart.lines else ""
+        same_cart = updated.id == conversation.id and conversation.cart.lines
+        version = conversation.menu_version if same_cart else ""
         stamped = updated.model_copy(
             update={
                 "last_inbound_at": inbound.sent_at,

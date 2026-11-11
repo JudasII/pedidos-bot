@@ -15,23 +15,13 @@ from pedidos_bot.channels.base import (
     degrade,
 )
 from pedidos_bot.channels.memory import WHATSAPP_LIKE, InMemoryChannel
+from tests.factories import make_inbound
 
 NOW = datetime(2026, 11, 6, 12, tzinfo=UTC)
 
 
 def _replies(*titles: str) -> tuple[QuickReply, ...]:
     return tuple(QuickReply(title=title, payload=title) for title in titles)
-
-
-def _inbound(**fields: object) -> InboundMessage:
-    base: dict[str, object] = {
-        "channel": "memory",
-        "external_id": "1",
-        "chat_ref": "chat",
-        "customer_ref": "customer",
-        "sent_at": NOW,
-    }
-    return InboundMessage.model_validate(base | fields)
 
 
 def test_buttons_that_fit_are_kept() -> None:
@@ -63,10 +53,10 @@ def test_message_without_buttons_is_unchanged() -> None:
 
 
 def test_button_payload_wins_over_text() -> None:
-    reply = _inbound(kind=MessageKind.INTERACTIVE_REPLY, text="Sí", reply_payload=" confirm ")
+    reply = make_inbound(kind=MessageKind.INTERACTIVE_REPLY, text="Sí", reply_payload=" confirm ")
     assert reply.content == "confirm"
-    assert _inbound(text=" hola ").content == "hola"
-    assert _inbound(kind=MessageKind.VOICE).content == ""
+    assert make_inbound(text=" hola ").content == "hola"
+    assert make_inbound(kind=MessageKind.VOICE).content == ""
 
 
 async def test_channel_delivers_inbound_to_the_handler() -> None:
@@ -77,7 +67,7 @@ async def test_channel_delivers_inbound_to_the_handler() -> None:
 
     channel = InMemoryChannel()
     await channel.start(handler)
-    await channel.receive(_inbound(text="hola"))
+    await channel.receive(make_inbound(text="hola"))
     assert [m.text for m in received] == ["hola"]
 
 
@@ -93,7 +83,7 @@ async def test_send_degrades_and_ignores_repeated_dedupe_keys() -> None:
 
 async def test_free_text_is_refused_outside_the_window_but_templates_pass() -> None:
     channel = InMemoryChannel(WHATSAPP_LIKE)
-    await channel.receive(_inbound(text="hola"))
+    await channel.receive(make_inbound(text="hola"))
     channel.now = NOW + timedelta(hours=25)
     with pytest.raises(ChannelError, match="window closed"):
         await channel.send("chat", OutboundMessage(text="¿Seguimos?"), dedupe_key="k1")

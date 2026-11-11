@@ -13,15 +13,19 @@ from functools import cached_property
 from typing import Annotated, Literal, Self
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
-from pedidos_bot.domain.menu import Category, Identifier, Menu, ModifierGroup, Price
+from pedidos_bot.domain.menu import (
+    Category,
+    Identifier,
+    Menu,
+    ModifierGroup,
+    Price,
+    duplicates,
+)
+from pedidos_bot.models import FrozenModel
 
 EnvVarName = Annotated[str, Field(pattern=r"^[A-Z][A-Z0-9_]*$")]
-
-
-class _Model(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 class Weekday(StrEnum):
@@ -34,19 +38,19 @@ class Weekday(StrEnum):
     SUN = "sun"
 
 
-class OpeningHours(_Model):
+class OpeningHours(FrozenModel):
     days: tuple[Weekday, ...] = Field(min_length=1)
     open: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     close: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
-class StaffNotification(_Model):
+class StaffNotification(FrozenModel):
     channel: Literal["telegram"] = "telegram"
     chat_id_env: EnvVarName
     """Name of the environment variable holding the staff chat id (never the id itself)."""
 
 
-class RestaurantInfo(_Model):
+class RestaurantInfo(FrozenModel):
     id: Identifier
     name: str = Field(min_length=1)
     timezone: str = "America/Bogota"
@@ -64,7 +68,7 @@ class RestaurantInfo(_Model):
         return value
 
 
-class EtaRange(_Model):
+class EtaRange(FrozenModel):
     min: int = Field(ge=1)
     max: int = Field(ge=1)
 
@@ -75,7 +79,7 @@ class EtaRange(_Model):
         return self
 
 
-class DeliveryOptions(_Model):
+class DeliveryOptions(FrozenModel):
     enabled: bool = False
     fee: Price = 0
     eta_minutes: EtaRange | None = None
@@ -87,7 +91,7 @@ class DeliveryOptions(_Model):
         return self
 
 
-class PickupOptions(_Model):
+class PickupOptions(FrozenModel):
     enabled: bool = False
     eta_minutes: EtaRange | None = None
 
@@ -98,7 +102,7 @@ class PickupOptions(_Model):
         return self
 
 
-class FulfillmentConfig(_Model):
+class FulfillmentConfig(FrozenModel):
     delivery: DeliveryOptions = DeliveryOptions()
     pickup: PickupOptions = PickupOptions()
 
@@ -109,7 +113,7 @@ class FulfillmentConfig(_Model):
         return self
 
 
-class PaymentMethod(_Model):
+class PaymentMethod(FrozenModel):
     id: Identifier
     label: str = Field(min_length=1)
     aliases: tuple[str, ...] = ()
@@ -118,13 +122,13 @@ class PaymentMethod(_Model):
     """Ask the customer which bill they will pay with (cash only)."""
 
 
-class Modes(_Model):
+class Modes(FrozenModel):
     shadow: bool = True
     """A human must confirm each order before it counts as valid."""
     paraphrase_llm: bool = False
 
 
-class SessionPolicy(_Model):
+class SessionPolicy(FrozenModel):
     resume_silently_minutes: int = Field(default=120, ge=1)
     resume_prompt_hours: int = Field(default=24, ge=1)
     handoff_timeout_minutes: int = Field(default=30, ge=1)
@@ -135,13 +139,13 @@ class ToneStyle(StrEnum):
     FORMAL = "formal"
 
 
-class Tone(_Model):
+class Tone(FrozenModel):
     style: ToneStyle = ToneStyle.INFORMAL
     emoji: Literal["none", "light", "heavy"] = "light"
     greeting: str = Field(min_length=1)
 
 
-class UpsellRule(_Model):
+class UpsellRule(FrozenModel):
     type: Literal["upsell"]
     after_categories: tuple[Identifier, ...] = Field(min_length=1)
     """When the cart has items from these categories..."""
@@ -149,12 +153,12 @@ class UpsellRule(_Model):
     """...and none from these, suggest them once."""
 
 
-class MaxQtyPerLineRule(_Model):
+class MaxQtyPerLineRule(FrozenModel):
     type: Literal["max_qty_per_line"]
     value: int = Field(ge=1)
 
 
-class AgeNoticeRule(_Model):
+class AgeNoticeRule(FrozenModel):
     type: Literal["age_notice"]
     categories: tuple[Identifier, ...] = Field(min_length=1)
     message: str = Field(min_length=1)
@@ -165,7 +169,7 @@ Rule = Annotated[UpsellRule | MaxQtyPerLineRule | AgeNoticeRule, Field(discrimin
 DEFAULT_MAX_QTY_PER_LINE = 20
 
 
-class RestaurantConfig(_Model):
+class RestaurantConfig(FrozenModel):
     restaurant: RestaurantInfo
     fulfillment: FulfillmentConfig
     payment_methods: tuple[PaymentMethod, ...] = Field(min_length=1)
@@ -180,8 +184,7 @@ class RestaurantConfig(_Model):
     def _check_references(self) -> Self:
         # Building the Menu validates product/group/category cross-references.
         menu = self.menu
-        pm_ids = [p.id for p in self.payment_methods]
-        dupes = sorted({i for i in pm_ids if pm_ids.count(i) > 1})
+        dupes = duplicates([p.id for p in self.payment_methods])
         if dupes:
             raise ValueError(f"duplicate payment method ids: {dupes}")
         category_ids = {c.id for c in menu.categories}

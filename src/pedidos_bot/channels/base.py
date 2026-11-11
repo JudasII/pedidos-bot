@@ -11,11 +11,9 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
-
-class _Model(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+from pedidos_bot.models import FrozenModel
 
 
 class MessageKind(StrEnum):
@@ -29,12 +27,12 @@ class MessageKind(StrEnum):
     UNSUPPORTED = "unsupported"
 
 
-class GeoPoint(_Model):
+class GeoPoint(FrozenModel):
     latitude: float
     longitude: float
 
 
-class InboundMessage(_Model):
+class InboundMessage(FrozenModel):
     channel: str
     external_id: str
     """Unique per channel; a repeated id is a duplicate delivery."""
@@ -55,24 +53,24 @@ class InboundMessage(_Model):
         return (self.reply_payload or self.text or "").strip()
 
 
-class QuickReply(_Model):
+class QuickReply(FrozenModel):
     title: str
     payload: str
 
 
-class TemplateRef(_Model):
+class TemplateRef(FrozenModel):
     name: str
     params: tuple[str, ...] = ()
 
 
-class OutboundMessage(_Model):
+class OutboundMessage(FrozenModel):
     text: str
     quick_replies: tuple[QuickReply, ...] = ()
     template: TemplateRef | None = None
     """Required by some channels outside the free-form window."""
 
 
-class ChannelCapabilities(_Model):
+class ChannelCapabilities(FrozenModel):
     max_buttons: int = 0
     max_button_title: int = 20
     freeform_window: timedelta | None = None
@@ -80,7 +78,7 @@ class ChannelCapabilities(_Model):
     requires_templates_outside_window: bool = False
 
 
-class SendResult(_Model):
+class SendResult(FrozenModel):
     external_id: str
 
 

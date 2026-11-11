@@ -1,12 +1,8 @@
 """Shortcuts. Customer wording is Spanish on purpose."""
 
-from datetime import UTC, datetime
-from pathlib import Path
-
 import pytest
 
 from pedidos_bot.channels.base import InboundMessage, MessageKind
-from pedidos_bot.config.loader import load_restaurant
 from pedidos_bot.engine.actions import (
     Action,
     AskHuman,
@@ -18,21 +14,13 @@ from pedidos_bot.engine.actions import (
 )
 from pedidos_bot.engine.resolver import MenuResolver
 from pedidos_bot.engine.shortcuts import detect
+from tests.factories import make_inbound, sample_config
 
-CONFIG_DIR = Path(__file__).resolve().parents[3] / "config" / "restaurants"
-RESOLVER = MenuResolver(load_restaurant("burger_demo", CONFIG_DIR))
+RESOLVER = MenuResolver(sample_config("burger_demo"))
 
 
 def _message(text: str | None = None, kind: MessageKind = MessageKind.TEXT) -> InboundMessage:
-    return InboundMessage(
-        channel="memory",
-        external_id="1",
-        chat_ref="chat",
-        customer_ref="customer",
-        sent_at=datetime(2026, 11, 6, tzinfo=UTC),
-        kind=kind,
-        text=text,
-    )
+    return make_inbound(text=text, kind=kind)
 
 
 @pytest.mark.parametrize(

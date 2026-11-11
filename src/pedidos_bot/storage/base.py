@@ -74,6 +74,8 @@ class BufferedScope:
         self._conversation = conversation
 
     def enqueue(self, entry: OutboxEntry) -> None:
+        if any(queued.dedupe_key == entry.dedupe_key for queued in self.outbox):
+            raise ValueError(f"two messages of one turn share the key '{entry.dedupe_key}'")
         self.outbox.append(entry)
 
     def place_order(self, order: Order) -> None:

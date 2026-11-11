@@ -1,10 +1,7 @@
 """The rule-based fake. Customer wording is Spanish on purpose."""
 
-from pathlib import Path
-
 import pytest
 
-from pedidos_bot.config.loader import load_restaurant
 from pedidos_bot.engine.actions import (
     Action,
     AddItem,
@@ -20,9 +17,9 @@ from pedidos_bot.engine.actions import (
 from pedidos_bot.engine.resolver import MenuResolver
 from pedidos_bot.llm.base import LLMMessage, LLMRequest
 from pedidos_bot.llm.fake import RuleBasedLLM, ScriptedLLM
+from tests.factories import sample_config
 
-CONFIG_DIR = Path(__file__).resolve().parents[3] / "config" / "restaurants"
-RULES = RuleBasedLLM(MenuResolver(load_restaurant("burger_demo", CONFIG_DIR)))
+RULES = RuleBasedLLM(MenuResolver(sample_config("burger_demo")))
 
 
 @pytest.mark.parametrize(

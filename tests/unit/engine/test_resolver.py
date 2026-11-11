@@ -1,15 +1,12 @@
 """Menu resolver against the shipped configs. Customer wording is Spanish on purpose."""
 
-from pathlib import Path
-
 import pytest
 
-from pedidos_bot.config.loader import load_restaurant
 from pedidos_bot.engine.resolver import MatchStatus, MenuResolver, normalize
+from tests.factories import sample_config
 
-CONFIG_DIR = Path(__file__).resolve().parents[3] / "config" / "restaurants"
-BURGER = MenuResolver(load_restaurant("burger_demo", CONFIG_DIR))
-MINIMAL = MenuResolver(load_restaurant("minimal_demo", CONFIG_DIR))
+BURGER = MenuResolver(sample_config("burger_demo"))
+MINIMAL = MenuResolver(sample_config("minimal_demo"))
 
 
 @pytest.mark.parametrize(

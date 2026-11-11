@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 
 from pedidos_bot.channels.base import QuickReply
-from pedidos_bot.config.schema import EtaRange, RestaurantConfig
+from pedidos_bot.config.schema import RestaurantConfig
 from pedidos_bot.domain.cart import (
     Cart,
     CartLine,
@@ -80,13 +80,13 @@ class Responder:
         return "\n".join(rows)
 
     def eta(self, cart: Cart) -> str:
-        mode = effective_fulfillment(cart, self._config)
         fulfillment = self._config.fulfillment
-        options: dict[Fulfillment | None, EtaRange | None] = {
-            Fulfillment.DELIVERY: fulfillment.delivery.eta_minutes,
-            Fulfillment.PICKUP: fulfillment.pickup.eta_minutes,
-        }
-        eta = options.get(mode)
+        mode = effective_fulfillment(cart, self._config)
+        eta = fulfillment.pickup.eta_minutes
+        if mode is Fulfillment.DELIVERY:
+            eta = fulfillment.delivery.eta_minutes
+        elif mode is None:
+            eta = None
         return f"{eta.min} a {eta.max} minutos" if eta else ""
 
     def menu(self) -> str:

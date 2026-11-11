@@ -4,26 +4,22 @@ from __future__ import annotations
 
 from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict
+from pedidos_bot.models import FrozenModel
 
 
-class _Model(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-class LLMMessage(_Model):
+class LLMMessage(FrozenModel):
     role: Literal["system", "user", "assistant"]
     content: str
 
 
-class LLMRequest(_Model):
+class LLMRequest(FrozenModel):
     messages: tuple[LLMMessage, ...]
     json_schema: dict[str, Any] | None = None
     temperature: float = 0.0
     max_tokens: int = 512
 
 
-class LLMUsage(_Model):
+class LLMUsage(FrozenModel):
     input_tokens: int = 0
     output_tokens: int = 0
 
@@ -34,7 +30,7 @@ class LLMUsage(_Model):
         )
 
 
-class LLMResult(_Model):
+class LLMResult(FrozenModel):
     text: str
     usage: LLMUsage
     latency_ms: int

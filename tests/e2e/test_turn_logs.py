@@ -1,22 +1,20 @@
 """What a turn writes to the logs. Customer data here is made up."""
 
-from pathlib import Path
 from typing import Any
 
 import pytest
 from structlog.testing import capture_logs
 
-from pedidos_bot.config.loader import load_restaurant
 from pedidos_bot.engine.actions import AddItem
 from pedidos_bot.engine.resolver import MenuResolver
 from pedidos_bot.engine.service import ConversationService
 from pedidos_bot.llm.fake import RuleBasedLLM, ScriptedLLM
 from pedidos_bot.observability.masking import hash_customer
 from tests.e2e.harness import Chat
+from tests.factories import sample_config
 
-CONFIG_DIR = Path(__file__).resolve().parents[2] / "config" / "restaurants"
-MINIMAL = load_restaurant("minimal_demo", CONFIG_DIR)
-BURGER = load_restaurant("burger_demo", CONFIG_DIR)
+MINIMAL = sample_config("minimal_demo")
+BURGER = sample_config("burger_demo")
 
 
 async def _logs(chat: Chat, *messages: str) -> list[dict[str, Any]]:

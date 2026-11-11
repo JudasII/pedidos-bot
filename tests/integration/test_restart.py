@@ -1,11 +1,8 @@
 """A process restart in the middle of an order, against real PostgreSQL."""
 
-from pathlib import Path
-
 import pytest
 
 from pedidos_bot.channels.memory import InMemoryChannel
-from pedidos_bot.config.loader import load_restaurant
 from pedidos_bot.engine.lifecycle import LifecycleState
 from pedidos_bot.engine.resolver import MenuResolver
 from pedidos_bot.engine.service import ConversationService
@@ -13,10 +10,9 @@ from pedidos_bot.llm.fake import RuleBasedLLM
 from pedidos_bot.storage.base import deliver_pending
 from pedidos_bot.storage.postgres import PostgresRepository
 from tests.e2e.harness import Chat
+from tests.factories import sample_config
 
-CONFIG = load_restaurant(
-    "burger_demo", Path(__file__).resolve().parents[2] / "config" / "restaurants"
-)
+CONFIG = sample_config("burger_demo")
 pytestmark = pytest.mark.postgres
 
 

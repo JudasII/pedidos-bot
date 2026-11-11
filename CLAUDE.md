@@ -28,6 +28,7 @@ Conversational assistant engine that takes burger-restaurant orders over chat. S
 - Persistence: **PostgreSQL from day one** (ADR-0002), psycopg 3, plain SQL migrations. No cache (Redis) yet: not needed in this phase.
 - Observability: OpenTelemetry instrumentation exported to **self-hosted Langfuse** (ADR-0003).
 - Orders don't depend on the chat: one entry point, `orders.source`, optional conversation link, notification built from the order alone (ADR-0004).
+- One process, one Telegram bot and one PostgreSQL database per restaurant; the schema has no restaurant column, so never share a database (ADR-0005).
 
 ## Code map (as of M3)
 - `domain/menu.py` menu models · `domain/cart.py` immutable cart + pure ops, `totals()`, `pending()` · `domain/money.py` `format_cop`.

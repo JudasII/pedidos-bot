@@ -8,10 +8,11 @@ from __future__ import annotations
 from enum import StrEnum
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 from pedidos_bot.config.schema import RestaurantConfig
 from pedidos_bot.domain.cart import Cart, Totals, pending, totals
+from pedidos_bot.models import FrozenModel
 
 
 class OrderSource(StrEnum):
@@ -25,9 +26,7 @@ class OrderStatus(StrEnum):
     """The customer cancelled or changed it before staff decided: nobody must act on it."""
 
 
-class Order(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
+class Order(FrozenModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     idempotency_key: str
     """Saving an order with the same key revises it instead of creating another."""

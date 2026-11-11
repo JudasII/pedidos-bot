@@ -6,18 +6,15 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 from pedidos_bot.domain.cart import Cart, MissingChoice, ModifierChoice
 from pedidos_bot.engine.lifecycle import Lifecycle
 from pedidos_bot.engine.policy import Step
+from pedidos_bot.models import FrozenModel
 
 
-class _Model(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-class ProductClarification(_Model):
+class ProductClarification(FrozenModel):
     """An item waiting for the customer to say which product, with what they already asked."""
 
     kind: Literal["product"] = "product"
@@ -27,7 +24,7 @@ class ProductClarification(_Model):
     note: str = ""
 
 
-class ModifierClarification(_Model):
+class ModifierClarification(FrozenModel):
     """An item waiting for the customer to say which option.
 
     The item stays out of the cart until then: added earlier, it could merge with an identical
@@ -45,7 +42,7 @@ class ModifierClarification(_Model):
     note: str = ""
 
 
-class AddressClarification(_Model):
+class AddressClarification(FrozenModel):
     """An address given after choosing pickup, waiting for a yes to switch to delivery."""
 
     kind: Literal["address"] = "address"
@@ -59,7 +56,7 @@ Clarification = Annotated[
 ]
 
 
-class ResumeOffer(_Model):
+class ResumeOffer(FrozenModel):
     """The bot asked a returning customer whether to go on."""
 
     cart: Cart | None = None
@@ -68,7 +65,7 @@ class ResumeOffer(_Model):
     """What the customer said on returning, handled if they choose to go on."""
 
 
-class Conversation(_Model):
+class Conversation(FrozenModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     """Identifies this order session; a chat gets a new one for each order."""
     channel: str

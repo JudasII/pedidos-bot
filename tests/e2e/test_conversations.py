@@ -1,12 +1,10 @@
 """Whole conversations through the real engine. Customer wording is Spanish on purpose."""
 
 from dataclasses import dataclass
-from pathlib import Path
 
 import pytest
 
 from pedidos_bot.channels.base import ChannelCapabilities, MessageKind
-from pedidos_bot.config.loader import load_restaurant
 from pedidos_bot.config.schema import RestaurantConfig
 from pedidos_bot.domain.cart import Fulfillment
 from pedidos_bot.domain.money import format_cop
@@ -17,10 +15,10 @@ from pedidos_bot.engine.lifecycle import LifecycleState as S
 from pedidos_bot.engine.policy import Step
 from pedidos_bot.llm.fake import ScriptedLLM
 from tests.e2e.harness import Chat
+from tests.factories import sample_config
 
-CONFIG_DIR = Path(__file__).resolve().parents[2] / "config" / "restaurants"
-BURGER = load_restaurant("burger_demo", CONFIG_DIR)
-MINIMAL = load_restaurant("minimal_demo", CONFIG_DIR)
+BURGER = sample_config("burger_demo")
+MINIMAL = sample_config("minimal_demo")
 
 
 @dataclass(frozen=True)
