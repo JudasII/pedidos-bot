@@ -17,6 +17,7 @@ from pedidos_bot.domain.cart import (
     missing_choices,
     pending,
     remove_line,
+    revalidate,
     set_address,
     set_fulfillment,
     set_payment,
@@ -216,3 +217,36 @@ def test_adding_after_a_price_change_does_not_reuse_the_old_price() -> None:
     data["categories"][0]["products"][0]["price"] = line.unit_price + 1000
     cart, _ = add_item(cart, make_config(**data), "classic")
     assert [item.unit_price for item in cart.lines] == [line.unit_price, line.unit_price + 1000]
+
+
+def test_revalidate_reprices_from_the_current_menu() -> None:
+    cart, line = add_item(Cart(), CONFIG, "classic", qty=2, modifiers=[BACON])
+    data = config_dict()
+    data["categories"][0]["products"][0]["price"] += 1000
+    fresh, dropped = revalidate(cart, make_config(**data))
+    assert fresh.lines[0].unit_price == line.unit_price + 1000
+    assert fresh.lines[0].qty == 2 and fresh.lines[0].modifiers == (BACON,)
+    assert dropped == ()
+
+
+def test_revalidate_drops_what_no_longer_exists() -> None:
+    cart, line = add_item(Cart(), CONFIG, "classic")
+    cart, _ = add_item(cart, CONFIG, "soda")
+    data = config_dict()
+    data["categories"][0]["products"][0]["available"] = False
+    fresh, dropped = revalidate(cart, make_config(**data))
+    assert [item.product_id for item in fresh.lines] == ["soda"]
+    assert dropped == (line,)
+
+
+def test_revalidate_forgets_options_the_restaurant_stopped_offering() -> None:
+    cart, _ = add_item(Cart(), CONFIG, "classic")
+    cart = set_fulfillment(cart, CONFIG, Fulfillment.DELIVERY)
+    cart = set_address(cart, "Calle 1")
+    cart = set_payment(cart, CONFIG, "transfer")
+    data = config_dict()
+    data["fulfillment"]["delivery"] = {"enabled": False}
+    data["payment_methods"] = data["payment_methods"][:1]
+    fresh, _ = revalidate(cart, make_config(**data))
+    assert fresh.fulfillment is None and fresh.payment is None
+    assert fresh.address == cart.address

@@ -29,7 +29,7 @@ Conversational assistant engine that takes burger-restaurant orders over chat. S
 - Observability: OpenTelemetry instrumentation exported to **self-hosted Langfuse** (ADR-0003).
 - Orders don't depend on the chat: one entry point, `orders.source`, optional conversation link, notification built from the order alone (ADR-0004).
 
-## Code map (as of M2)
+## Code map (as of M3)
 - `domain/menu.py` menu models · `domain/cart.py` immutable cart + pure ops, `totals()`, `pending()` · `domain/money.py` `format_cop`.
 - `config/schema.py` `RestaurantConfig` · `config/loader.py` `load_restaurant`, `ConfigError`, `resolve_staff_chat_id`, JSON Schema export (`docs/config.schema.json`, kept in sync by a test).
 - `engine/resolver.py` `MenuResolver`: exact → containment → fuzzy; returns RESOLVED / AMBIGUOUS / NOT_FOUND, never guesses. Orders go through `resolve_item`, which checks the whole phrase; `resolve_product` alone ignores leftover words.
@@ -37,15 +37,17 @@ Conversational assistant engine that takes burger-restaurant orders over chat. S
 - `engine/shortcuts.py` `detect` · `engine/lifecycle.py` `Lifecycle`, `TRANSITIONS` · `engine/policy.py` `next_step` · `engine/templates.py` `Msg`, per-tone text · `engine/responder.py` `Responder`.
 - `engine/conversation.py` `Conversation` (state between turns) · `engine/turn.py` `Turn` (logic of one turn, no I/O) · `engine/service.py` `ConversationService.handle`.
 - `channels/base.py` message models, `Channel`, `degrade` · `channels/memory.py` `InMemoryChannel`, `WHATSAPP_LIKE` · `channels/terminal.py` REPL.
-- `storage/base.py` `ConversationRepository` (owns the turn boundary), `deliver_pending` · `storage/memory.py` `InMemoryRepository`.
+- `storage/base.py` `ConversationRepository` (owns the turn boundary), `deliver_pending` · `storage/memory.py` `InMemoryRepository` · `storage/postgres.py` `PostgresRepository`, `migrate` · `storage/migrations/*.sql`.
+- `domain/order.py` `create_order`, the one entry point for orders (ADR-0004) · `domain/cart.py` `revalidate` · `observability/masking.py` `mask_text`, `hash_customer` · `observability/logging.py` `configure_logging`.
+- `tests/integration/test_repository.py` one contract suite for both repositories. Run PostgreSQL tests with `uv run pytest -m postgres`; the fixture only wipes databases ending in `_test`.
 - `tests/e2e/harness.py` `Chat`: a customer talking to the real engine.
 - `tests/factories.py` `make_config()` small generic config for unit tests.
 - After `ruff check --fix`, run `ruff format` again.
 
 ## Conventions
 - Python 3.12, `uv`.
-- Quality gate before every commit: `uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest`.
-- Tests: unit in `tests/unit`, end-to-end conversations with `FakeLLM` in `tests/e2e`, integration with real services marked `@pytest.mark.ollama` / `@pytest.mark.hosted` (skipped by default; run with `uv run pytest -m ollama`).
+- Quality gate before every commit: `uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest && uv run pytest -m postgres`.
+- Tests: unit in `tests/unit`, end-to-end conversations with `FakeLLM` in `tests/e2e`, integration with real services marked `@pytest.mark.postgres` / `@pytest.mark.ollama` / `@pytest.mark.hosted` (skipped by default; run with `uv run pytest -m postgres`).
 - Commits: Conventional Commits in English referencing an issue, e.g. `feat(engine): menu resolver with aliases (#12)`.
 - One branch per milestone (`m1-domain-config`), PR to `main` that closes the issues.
 - Relevant decisions ⇒ ADR in `docs/adr/NNNN-title.md` (template: `0000-template.md`).

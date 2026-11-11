@@ -8,13 +8,15 @@ import pytest
 from pedidos_bot.channels.base import ChannelCapabilities, MessageKind
 from pedidos_bot.config.loader import load_restaurant
 from pedidos_bot.config.schema import RestaurantConfig
-from pedidos_bot.engine.actions import AddItem, Confirm, RemoveItem, UpdateItem
+from pedidos_bot.domain.cart import Fulfillment
+from pedidos_bot.domain.money import format_cop
+from pedidos_bot.domain.order import OrderSource, OrderStatus
+from pedidos_bot.engine.actions import AddItem, Confirm, SetAddress, UpdateItem
 from pedidos_bot.engine.conversation import Conversation
 from pedidos_bot.engine.lifecycle import LifecycleState as S
 from pedidos_bot.engine.policy import Step
 from pedidos_bot.llm.fake import ScriptedLLM
 from tests.e2e.harness import Chat
-from tests.factories import config_dict, make_config
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "config" / "restaurants"
 BURGER = load_restaurant("burger_demo", CONFIG_DIR)
@@ -348,8 +350,64 @@ async def test_a_failed_turn_leaves_nothing_behind_and_can_be_retried() -> None:
     message = chat.message("una sencilla", external_id="same")
     with pytest.raises(AssertionError):
         await chat.send(message)
-    assert ("test", "chat") not in chat.repository.conversations
+    assert await chat.repository.load("test", "chat") is None
     assert await chat.repository.pending_outbound() == []
+
+
+@both
+async def test_confirming_places_one_order(s: Scenario) -> None:
+    chat = Chat(s.config)
+    await _to_confirmation(chat, s)
+    conversation_id = chat.conversation.id
+    assert await chat.repository.load_order(conversation_id) is None
+    await chat.say("sí")
+    await chat.say("sí")
+    order = await chat.repository.load_order(conversation_id)
+    assert order is not None
+    assert order.source is OrderSource.CHAT
+    assert order.conversation_id == conversation_id
+    expected = OrderStatus.PENDING_VALIDATION if s.config.modes.shadow else OrderStatus.CONFIRMED
+    assert order.status is expected
+    assert s.total == f"Total: {format_cop(order.totals.total)}"
+
+
+async def test_a_change_after_confirming_revises_the_same_order() -> None:
+    chat = Chat(BURGER)
+    await _to_confirmation(chat, SCENARIOS[0])
+    await chat.say("sí")
+    first = await chat.repository.load_order(chat.conversation.id)
+    await chat.say("una doble")
+    await chat.say("sí")
+    revised = await chat.repository.load_order(chat.conversation.id)
+    assert first is not None and revised is not None
+    assert revised.id == first.id
+    assert len(revised.cart.lines) == 2
+
+
+async def _sent_to_staff() -> Chat:
+    chat = Chat(BURGER)
+    await _to_confirmation(chat, SCENARIOS[0])
+    await chat.say("sí")
+    return chat
+
+
+async def test_cancelling_while_staff_decide_withdraws_the_order() -> None:
+    chat = await _sent_to_staff()
+    key = chat.conversation.id
+    await chat.say("cancelar")
+    order = await chat.repository.load_order(key)
+    assert order is not None and order.status is OrderStatus.WITHDRAWN
+
+
+async def test_changing_while_staff_decide_withdraws_until_confirmed_again() -> None:
+    chat = await _sent_to_staff()
+    key = chat.conversation.id
+    await chat.say("una doble")
+    order = await chat.repository.load_order(key)
+    assert order is not None and order.status is OrderStatus.WITHDRAWN
+    await chat.say("sí")
+    order = await chat.repository.load_order(key)
+    assert order is not None and order.status is OrderStatus.PENDING_VALIDATION
 
 
 async def test_a_repeated_yes_after_confirming_does_not_start_over() -> None:
@@ -500,24 +558,6 @@ async def test_a_digit_that_is_not_a_number_does_not_crash() -> None:
     assert chat.state is S.ORDERING
 
 
-async def test_removing_some_of_an_unavailable_product_is_refused_politely() -> None:
-    data = config_dict()
-    chat = Chat(
-        make_config(**data),
-        ScriptedLLM(
-            [
-                [AddItem(product="clasica", quantity=3)],
-            ]
-        ),
-    )
-    await chat.say("3 clasicas")
-    data["categories"][0]["products"][0]["available"] = False
-    changed = Chat(make_config(**data), ScriptedLLM([[RemoveItem(product="clasica", quantity=1)]]))
-    changed.repository.conversations = chat.repository.conversations
-    await changed.say("quita una")
-    assert changed.lines == chat.lines
-
-
 async def test_a_rejected_change_does_not_pull_the_order_back_from_staff() -> None:
     llm = ScriptedLLM([[AddItem(product="sencilla")], [AddItem(product="sushi")]])
     chat = Chat(BURGER, llm)
@@ -550,3 +590,82 @@ async def test_the_conversation_survives_serialization(s: Scenario) -> None:
     await _to_confirmation(chat, s)
     restored = Conversation.model_validate_json(chat.conversation.model_dump_json())
     assert restored == chat.conversation
+
+
+async def _pickup_chosen() -> Chat:
+    chat = Chat(BURGER)
+    for text in ("una doble", "no", "para recoger"):
+        await chat.say(text)
+    return chat
+
+
+async def test_an_address_after_choosing_pickup_asks_first() -> None:
+    chat = await _pickup_chosen()
+    reply = await chat.say("a la calle 10")
+    assert "¿Cambiamos a domicilio a calle 10? El envío cuesta $5.000." in reply
+    assert chat.conversation.cart.fulfillment is Fulfillment.PICKUP
+    assert chat.conversation.cart.address is None
+
+
+async def test_saying_yes_switches_to_delivery_and_keeps_the_address() -> None:
+    chat = await _pickup_chosen()
+    await chat.say("a la calle 10")
+    await chat.say("sí")
+    cart = chat.conversation.cart
+    assert cart.fulfillment is Fulfillment.DELIVERY
+    assert cart.address is not None and cart.address.text == "calle 10"
+
+
+async def test_saying_no_keeps_pickup() -> None:
+    chat = await _pickup_chosen()
+    await chat.say("a la calle 10")
+    await chat.say("no")
+    cart = chat.conversation.cart
+    assert cart.fulfillment is Fulfillment.PICKUP and cart.address is None
+
+
+async def test_the_question_also_applies_at_the_summary() -> None:
+    chat = await _pickup_chosen()
+    await chat.say("nequi")
+    assert chat.state is S.AWAITING_CONFIRMATION
+    await chat.say("a la calle 10")
+    assert chat.state is S.ORDERING
+    await chat.say("no")
+    assert chat.state is S.AWAITING_CONFIRMATION
+    assert "Recoges en el local" in chat.reply.text
+
+
+async def test_an_address_before_choosing_a_mode_still_means_delivery() -> None:
+    chat = Chat(BURGER)
+    await chat.say("una doble, a la calle 10")
+    assert chat.conversation.cart.fulfillment is Fulfillment.DELIVERY
+
+
+async def test_an_address_in_a_pickup_only_restaurant_is_refused() -> None:
+    chat = Chat(MINIMAL, ScriptedLLM([[SetAddress(address="calle 10")]]))
+    assert "No contamos con esa opción" in await chat.say("a la calle 10")
+
+
+async def test_a_new_address_replaces_the_one_being_asked_about() -> None:
+    chat = await _pickup_chosen()
+    await chat.say("a la calle 10")
+    assert "a calle 20?" in await chat.say("a la calle 20")
+    await chat.say("sí")
+    cart = chat.conversation.cart
+    assert cart.address is not None and cart.address.text == "calle 20"
+    assert chat.conversation.clarifications == ()
+
+
+async def test_answering_the_address_question_with_the_mode() -> None:
+    chat = await _pickup_chosen()
+    await chat.say("a la calle 10")
+    await chat.say("domicilio")
+    cart = chat.conversation.cart
+    assert cart.fulfillment is Fulfillment.DELIVERY
+    assert cart.address is not None and cart.address.text == "calle 10"
+
+    chat = await _pickup_chosen()
+    await chat.say("a la calle 10")
+    await chat.say("para recoger")
+    assert chat.conversation.cart.address is None
+    assert chat.conversation.clarifications == ()

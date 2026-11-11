@@ -17,6 +17,7 @@ class Msg(StrEnum):
     MODIFIER_CHOICE = "modifier_choice"
     MODIFIER_YES_NO = "modifier_yes_no"
     MODIFIER_NOT_FOUND = "modifier_not_found"
+    SWITCH_TO_DELIVERY = "switch_to_delivery"
     NOT_IN_CART = "not_in_cart"
     LINE_UNCLEAR = "line_unclear"
     INVALID_CHANGE = "invalid_change"
@@ -42,6 +43,9 @@ class Msg(StrEnum):
     ALREADY_CONFIRMED = "already_confirmed"
     CANCELLED = "cancelled"
     HANDOFF = "handoff"
+    RESUME_PROMPT = "resume_prompt"
+    RECOVER_PROMPT = "recover_prompt"
+    NO_LONGER_AVAILABLE = "no_longer_available"
     NOT_UNDERSTOOD = "not_understood"
     QUESTION_UNKNOWN = "question_unknown"
     HOURS = "hours"
@@ -65,6 +69,7 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.MODIFIER_CHOICE: "Para {product}, ¿cuál quieres: {options}?",
         Msg.MODIFIER_YES_NO: "Para {product}, ¿te refieres a {option}?",
         Msg.MODIFIER_NOT_FOUND: "No pude ponerle “{text}” a {product}.",
+        Msg.SWITCH_TO_DELIVERY: "¿Cambiamos a domicilio a {address}? El envío cuesta {fee}.",
         Msg.NOT_IN_CART: "No tengo “{text}” en tu pedido.",
         Msg.LINE_UNCLEAR: "Tienes varias líneas de {product}. ¿Me dices cuál?",
         Msg.INVALID_CHANGE: "Eso no se puede con {product}: revisa la cantidad o las opciones.",
@@ -90,6 +95,9 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.ALREADY_CONFIRMED: "Tu pedido ya está confirmado.",
         Msg.CANCELLED: "Listo, cancelé tu pedido. Aquí estamos cuando quieras.",
         Msg.HANDOFF: "Ya te paso con alguien del equipo, dame un momento.",
+        Msg.RESUME_PROMPT: "¿Seguimos con tu pedido de {items}?",
+        Msg.RECOVER_PROMPT: "Tenías un pedido sin terminar: {items}. ¿Lo retomamos?",
+        Msg.NO_LONGER_AVAILABLE: "Ya no tenemos {items}.",
         Msg.NOT_UNDERSTOOD: "Perdón, no te entendí. ¿Me lo dices de otra forma?",
         Msg.QUESTION_UNKNOWN: "Eso no te lo sé responder.",
         Msg.HOURS: "Nuestro horario: {hours}.",
@@ -110,6 +118,7 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.MODIFIER_CHOICE: "Para {product}, ¿cuál desea: {options}?",
         Msg.MODIFIER_YES_NO: "Para {product}, ¿se refiere a {option}?",
         Msg.MODIFIER_NOT_FOUND: "No fue posible agregar “{text}” a {product}.",
+        Msg.SWITCH_TO_DELIVERY: "¿Desea cambiar a domicilio a {address}? El envío cuesta {fee}.",
         Msg.NOT_IN_CART: "No tengo “{text}” en su pedido.",
         Msg.LINE_UNCLEAR: "Tiene varias líneas de {product}. ¿Podría indicarme cuál?",
         Msg.INVALID_CHANGE: "No es posible con {product}: revise la cantidad o las opciones.",
@@ -135,6 +144,9 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.ALREADY_CONFIRMED: "Su pedido ya está confirmado.",
         Msg.CANCELLED: "Su pedido fue cancelado. Quedamos atentos.",
         Msg.HANDOFF: "Le comunico con alguien del equipo, un momento por favor.",
+        Msg.RESUME_PROMPT: "¿Continuamos con su pedido de {items}?",
+        Msg.RECOVER_PROMPT: "Tenía un pedido sin terminar: {items}. ¿Desea retomarlo?",
+        Msg.NO_LONGER_AVAILABLE: "Ya no contamos con {items}.",
         Msg.NOT_UNDERSTOOD: "Disculpe, no le entendí. ¿Podría decirlo de otra forma?",
         Msg.QUESTION_UNKNOWN: "No tengo esa información.",
         Msg.HOURS: "Nuestro horario: {hours}.",

@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
 dependencies = [
+    "psycopg[binary,pool]>=3.2",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "pyyaml>=6.0",
@@ -54,8 +55,9 @@ asyncio_default_fixture_loop_scope = "function"
 markers = [
     "ollama: requires a local Ollama server with the configured model (skipped by default)",
     "hosted: calls a hosted model (requires an API key; skipped by default)",
+    "postgres: requires PostgreSQL at TEST_DATABASE_URL (skipped by default)",
 ]
-addopts = "-ra -m 'not ollama and not hosted'"
+addopts = "-ra -m 'not ollama and not hosted and not postgres'"
 
 [tool.ruff.lint.per-file-ignores]
 "scripts/github_bootstrap.py" = ["E501"]  # issue texts: readability over line width
