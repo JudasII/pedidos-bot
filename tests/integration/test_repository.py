@@ -102,6 +102,15 @@ async def _pending_keys(repository: ConversationRepository) -> list[str]:
     return [entry.dedupe_key for entry in await repository.pending_outbound()]
 
 
+async def test_a_turn_refuses_two_messages_with_the_same_key(
+    repository: ConversationRepository,
+) -> None:
+    """PostgreSQL would keep only the first, silently: a second message must get its own key."""
+    with pytest.raises(ValueError, match="k1"):
+        await _enqueue(repository, "k1", "k1")
+    assert await _pending_keys(repository) == []
+
+
 async def test_sent_messages_leave_the_outbox_in_order(repository: ConversationRepository) -> None:
     await _enqueue(repository, "k1", "k2")
     sent: list[str] = []
