@@ -50,6 +50,7 @@ class Msg(StrEnum):
     BOT_DISCLOSURE = "bot_disclosure"
     OFFER_PERSON = "offer_person"
     TEXT_ONLY = "text_only"
+    STAFF_REJECTED = "staff_rejected"
     QUESTION_UNKNOWN = "question_unknown"
     HOURS = "hours"
     HOURS_UNKNOWN = "hours_unknown"
@@ -108,6 +109,10 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         ),
         Msg.OFFER_PERSON: "Si prefieres, te paso con una persona: escribe “asesor”.",
         Msg.TEXT_ONLY: "Por ahora solo leo mensajes de texto. ¿Me lo escribes?",
+        Msg.STAFF_REJECTED: (
+            "No pudimos tomar tu pedido como está. Dime qué le cambiamos, "
+            "o escribe “asesor” y te atiende una persona."
+        ),
         Msg.QUESTION_UNKNOWN: "Eso no te lo sé responder.",
         Msg.HOURS: "Nuestro horario: {hours}.",
         Msg.HOURS_UNKNOWN: "No tengo el horario a la mano.",
@@ -163,6 +168,10 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         ),
         Msg.OFFER_PERSON: "Si lo prefiere, le comunico con una persona: escriba “asesor”.",
         Msg.TEXT_ONLY: "Por ahora solo puedo leer mensajes de texto. ¿Podría escribirlo?",
+        Msg.STAFF_REJECTED: (
+            "No fue posible tomar su pedido como está. Indíqueme qué desea cambiar, "
+            "o escriba “asesor” y le atiende una persona."
+        ),
         Msg.QUESTION_UNKNOWN: "No tengo esa información.",
         Msg.HOURS: "Nuestro horario: {hours}.",
         Msg.HOURS_UNKNOWN: "No tengo el horario disponible.",

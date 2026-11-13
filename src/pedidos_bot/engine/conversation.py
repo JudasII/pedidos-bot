@@ -83,6 +83,8 @@ class Conversation(FrozenModel):
     """The customer finished adding items."""
     upsell_offered: bool = False
     change_asked: bool = False
+    order_revision: int = 0
+    """How many times this conversation's order has been sent; staff decide on the latest."""
     misunderstood: int = 0
     """Consecutive turns the bot could not understand."""
     clarifications: tuple[Clarification, ...] = ()

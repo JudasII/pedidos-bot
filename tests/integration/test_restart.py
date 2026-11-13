@@ -44,3 +44,27 @@ async def test_replies_still_go_out_if_the_process_died_before_sending(database_
         assert await deliver_pending(repository, channel) == 1
         assert "Anotado" in channel.sent[0].message.text
         assert await deliver_pending(repository, channel) == 0
+
+
+async def test_staff_decide_on_an_order_stored_in_postgres(database_url: str) -> None:
+    async with PostgresRepository.open(database_url) as repository:
+        chat = Chat(CONFIG, repository=repository)
+        for text in ("una sencilla", "no", "para recoger", "nequi", "sí"):
+            await chat.say(text)
+        assert chat.state is LifecycleState.PENDING_STAFF_CONFIRMATION
+        key = chat.conversation.id
+        sent = await repository.load_order(key)
+        await chat.tap("Rechazar")
+        rejected = await repository.load_order(key)
+        await chat.say("agrega una doble")
+        await chat.say("sí")
+        assert "confirmado" in await chat.tap("Aprobar")
+        approved = await repository.load_order(key)
+    assert sent is not None and rejected is not None and approved is not None
+    assert [o.status.value for o in (sent, rejected, approved)] == [
+        "pending_validation",
+        "rejected",
+        "confirmed",
+    ]
+    assert approved.id == sent.id and approved.revision == 2
+    assert chat.state is LifecycleState.CONFIRMED

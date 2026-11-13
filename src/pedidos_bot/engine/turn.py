@@ -496,13 +496,19 @@ class Turn:
                 self._update(items_done=True)
 
     def _place_order(self) -> None:
+        conversation = self.conversation
+        revision = conversation.order_revision + 1
         self.order = create_order(
             self._cart,
             self._config,
             source=OrderSource.CHAT,
-            idempotency_key=self.conversation.id,
-            conversation_id=self.conversation.id,
+            idempotency_key=conversation.id,
+            conversation_id=conversation.id,
+            channel=conversation.channel,
+            chat_ref=conversation.chat_ref,
+            revision=revision,
         )
+        self._update(order_revision=revision)
 
     # --- reply ----------------------------------------------------------------------------
 

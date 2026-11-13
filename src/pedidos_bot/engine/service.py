@@ -14,20 +14,28 @@ import structlog
 from pedidos_bot.channels.base import InboundMessage, MessageKind, OutboundMessage
 from pedidos_bot.config.schema import RestaurantConfig
 from pedidos_bot.domain.cart import CartLine, revalidate
-from pedidos_bot.domain.order import Order
+from pedidos_bot.domain.order import Order, OrderStatus
 from pedidos_bot.engine.actions import Action, SetAddress, Unknown
 from pedidos_bot.engine.conversation import Conversation, ResumeOffer
-from pedidos_bot.engine.lifecycle import LifecycleState
+from pedidos_bot.engine.lifecycle import Event, LifecycleState
 from pedidos_bot.engine.nlu import Nlu
 from pedidos_bot.engine.policy import Step
 from pedidos_bot.engine.resolver import MenuResolver
 from pedidos_bot.engine.responder import Responder, join_options
 from pedidos_bot.engine.shortcuts import detect, is_confirm, is_deny
+from pedidos_bot.engine.staff import (
+    StaffDecision,
+    Verdict,
+    decision_notice,
+    order_notification,
+    stale_notice,
+    withdrawn_notice,
+)
 from pedidos_bot.engine.templates import Msg
 from pedidos_bot.engine.turn import Turn
 from pedidos_bot.llm.base import LLMProvider, LLMUsage
 from pedidos_bot.observability.masking import hash_customer, mask_text
-from pedidos_bot.storage.base import ConversationRepository, OutboxEntry
+from pedidos_bot.storage.base import ConversationRepository, OutboxEntry, TurnScope
 
 _logger = structlog.get_logger()
 
@@ -61,8 +69,11 @@ class ConversationService:
         llm: LLMProvider,
         repository: ConversationRepository,
         pii_salt: str | None = None,
+        staff_chat: str | None = None,
     ) -> None:
         self._config = config
+        self._staff_chat = staff_chat
+        """Where the restaurant reads its orders. None: nobody is told (tests, the REPL)."""
         self._pii_salt = pii_salt or secrets.token_hex(16)
         """Without a configured salt, hashes are still safe but only stable in this process."""
         self._repository = repository
@@ -86,17 +97,24 @@ class ConversationService:
                 result = await self._process(before, inbound)
                 assert result.conversation is not None
                 scope.save(result.conversation)
+                key = f"{inbound.channel}:{inbound.external_id}"
                 if result.reply is not None:
-                    key = f"{inbound.channel}:{inbound.external_id}"
                     scope.enqueue(OutboxEntry(inbound.chat_ref, result.reply, key))
                 if result.order is not None:
-                    scope.place_order(result.order)
+                    order = await self._keeping_its_id(result.order)
+                    result = replace(result, order=order)
+                    scope.place_order(order)
+                    self._tell_staff(scope, order_notification(order, self._config), key)
                 if result.withdrawn_order is not None:
                     scope.withdraw_order(result.withdrawn_order)
+                    withdrawn = await self._repository.load_order(result.withdrawn_order)
+                    if withdrawn is not None:
+                        self._tell_staff(scope, withdrawn_notice(withdrawn), f"{key}:withdrawn")
         except Exception as exc:
             # The type only: messages of validation errors can quote what the customer wrote.
             log.error("turn_failed", error=type(exc).__name__, latency_ms=_since(started))
             raise
+        assert result.conversation is not None
         log.info(
             "turn",
             conversation_id=result.conversation.id,
@@ -109,6 +127,68 @@ class ConversationService:
             latency_ms=_since(started),
         )
         return result
+
+    async def _keeping_its_id(self, order: Order) -> Order:
+        """A revised order is the same order: staff must see the code they already know."""
+        if order.revision == 1:
+            return order
+        previous = await self._repository.load_order(order.idempotency_key)
+        return order if previous is None else order.model_copy(update={"id": previous.id})
+
+    def _tell_staff(self, scope: TurnScope, message: OutboundMessage, key: str) -> None:
+        if self._staff_chat is not None:
+            scope.enqueue(OutboxEntry(self._staff_chat, message, f"{key}:staff"))
+
+    async def handle_staff(self, decision: StaffDecision) -> bool:
+        """Apply a staff decision to its order. False if it changed nothing.
+
+        The decision counts only for the revision staff saw: if the customer changed or
+        cancelled the order meanwhile, staff are told and nothing happens.
+        """
+        log = _logger.bind(turn_id=f"staff:{decision.external_id}", verdict=decision.verdict.value)
+        order = await self._repository.load_order(decision.order_key)
+        if order is None or order.channel is None or order.chat_ref is None:
+            log.warning("staff_decision_without_order")
+            return False
+        approved = decision.verdict is Verdict.APPROVE
+        event = Event.STAFF_APPROVED if approved else Event.STAFF_REJECTED
+        # The customer's conversation is locked through a message that stands for the action.
+        action = InboundMessage(
+            channel=order.channel,
+            external_id=decision.external_id,
+            chat_ref=order.chat_ref,
+            customer_ref=order.chat_ref,
+            sent_at=decision.at,
+        )
+        key = f"{order.channel}:{decision.external_id}"
+        async with self._repository.turn(action) as scope:
+            if scope is None:
+                log.info("duplicate_message")
+                return False
+            conversation = scope.conversation
+            current = (
+                conversation.id == order.idempotency_key
+                and conversation.order_revision == decision.revision
+                and order.status is OrderStatus.PENDING_VALIDATION
+                and conversation.lifecycle.can(event)
+            )
+            if not current:
+                self._tell_staff(scope, stale_notice(order.code), key)
+                log.info("staff_decision", order_id=order.id, applied=False)
+                return False
+            lifecycle = conversation.lifecycle.apply(event)
+            cleared = {"lifecycle": lifecycle, "asked": None, "asked_choice": None, "options": ()}
+            scope.save(conversation.model_copy(update=cleared))
+            status = OrderStatus.CONFIRMED if approved else OrderStatus.REJECTED
+            scope.place_order(order.model_copy(update={"status": status}))
+            if approved:
+                text = self._responder.text(Msg.CONFIRMED, eta=self._responder.eta(order.cart))
+            else:
+                text = self._responder.text(Msg.STAFF_REJECTED)
+            scope.enqueue(OutboxEntry(order.chat_ref, OutboundMessage(text=text), key))
+            self._tell_staff(scope, decision_notice(order, decision.verdict), key)
+        log.info("staff_decision", order_id=order.id, applied=True, state_after=lifecycle.state)
+        return True
 
     async def _process(self, conversation: Conversation, inbound: InboundMessage) -> TurnResult:
         result = await self._respond(conversation, inbound)
