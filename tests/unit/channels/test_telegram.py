@@ -158,6 +158,20 @@ async def test_an_ignored_update_is_confirmed() -> None:
     assert handled == []
 
 
+async def test_an_update_that_cannot_be_read_is_skipped() -> None:
+    broken = {"update_id": 40, "message": {"chat": {"id": 7, "type": "private"}, "text": "hola"}}
+    fake = FakeTelegram(broken, make_update(41))
+    handled: list[str] = []
+
+    async def on_inbound(inbound: InboundMessage) -> None:
+        handled.append(inbound.external_id)
+
+    with capture_logs() as logs:
+        await _poll(fake, on_inbound, lambda: not fake.updates)
+    assert handled == ["41"]
+    assert [log["event"] for log in logs] == ["telegram_update_unreadable"]
+
+
 async def test_a_chat_runs_in_order_and_does_not_hold_up_the_others() -> None:
     fake = FakeTelegram(
         make_update(1, chat_id=7), make_update(2, chat_id=7), make_update(3, chat_id=8)

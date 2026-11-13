@@ -84,7 +84,7 @@ def test_run_names_the_missing_settings_without_their_values(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.chdir(tmp_path)  # no .env here
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "")  # as copied from .env.example
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:hunter2@localhost/db")
     config_dir = str(ROOT / "config" / "restaurants")
     assert main(["run", "--restaurant", "minimal_demo", "--config-dir", config_dir]) == 1

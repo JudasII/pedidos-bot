@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    telegram_bot_token: SecretStr
-    database_url: str
+    telegram_bot_token: SecretStr = Field(min_length=1)
+    database_url: str = Field(min_length=1)
     pii_hash_salt: str | None = None
     log_level: str = "INFO"

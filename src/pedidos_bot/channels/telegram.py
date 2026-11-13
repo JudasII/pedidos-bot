@@ -138,7 +138,14 @@ class TelegramChannel:
     def _accept(self, update: dict[str, Any], on_inbound: InboundHandler) -> None:
         update_id = update["update_id"]
         self._last_seen = update_id
-        inbound = to_inbound(update)
+        try:
+            inbound = to_inbound(update)
+        except (KeyError, TypeError, ValueError) as error:
+            # Skipped and confirmed: an update we can't read must not stop the polling.
+            _logger.error(
+                "telegram_update_unreadable", update_id=update_id, error=type(error).__name__
+            )
+            return
         if inbound is None:
             return
         self._unfinished.add(update_id)

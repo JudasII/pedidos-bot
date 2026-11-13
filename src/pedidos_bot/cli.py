@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from pedidos_bot import __version__
 from pedidos_bot.app import run_chat, run_telegram
+from pedidos_bot.channels.base import ChannelError
 from pedidos_bot.config.loader import (
     ConfigError,
     config_json_schema_text,
@@ -132,7 +133,11 @@ def _run(args: argparse.Namespace) -> int:
         missing = ", ".join(str(error["loc"][0]).upper() for error in exc.errors())
         print(f"missing or invalid settings: {missing} (see .env.example)", file=sys.stderr)
         return 1
-    asyncio.run(run_telegram(config, settings))
+    try:
+        asyncio.run(run_telegram(config, settings))
+    except ChannelError as exc:
+        print(f"telegram: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 
