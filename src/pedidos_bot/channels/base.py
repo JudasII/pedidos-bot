@@ -85,6 +85,11 @@ class SendResult(FrozenModel):
 class ChannelError(Exception):
     """The channel refused or failed to deliver a message."""
 
+    def __init__(self, message: str, *, retry_after: timedelta | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+        """How long the channel asked us to wait before trying again, if it said."""
+
 
 InboundHandler = Callable[[InboundMessage], Awaitable[None]]
 
@@ -92,7 +97,12 @@ InboundHandler = Callable[[InboundMessage], Awaitable[None]]
 class Channel(Protocol):
     capabilities: ChannelCapabilities
 
-    async def start(self, on_inbound: InboundHandler) -> None: ...
+    async def start(self, on_inbound: InboundHandler) -> None:
+        """Deliver inbound messages to `on_inbound` until the channel stops.
+
+        A channel that polls blocks here; one that is driven from outside returns at once.
+        """
+        ...
 
     async def send(
         self, chat_ref: str, message: OutboundMessage, *, dedupe_key: str

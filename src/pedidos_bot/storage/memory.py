@@ -18,8 +18,8 @@ from pedidos_bot.storage.base import (
     OutboxEntry,
     Sender,
     TurnScope,
+    delay_after,
     log_given_up,
-    retry_delay,
 )
 
 
@@ -78,10 +78,10 @@ class InMemoryRepository:
         due.claimed = True
         try:
             await send(due.entry)
-        except Exception:
+        except Exception as error:
             due.claimed = False
             due.attempts += 1
-            due.next_attempt_at = now + retry_delay(due.attempts)
+            due.next_attempt_at = now + delay_after(error, due.attempts)
             if due.attempts >= MAX_SEND_ATTEMPTS:
                 self._outbox.remove(due)
                 log_given_up(due.entry)
