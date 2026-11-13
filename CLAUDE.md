@@ -41,6 +41,7 @@ Conversational assistant engine that takes burger-restaurant orders over chat. S
 - `app.py` the composition root: `build_service`, `serve`, `run_telegram`, `run_chat` (REPL) · `settings.py` `Settings` (from `.env`) · `cli.py` commands, including `run`.
 - `storage/base.py` `ConversationRepository` (owns the turn boundary), `deliver_pending` · `storage/memory.py` `InMemoryRepository` · `storage/postgres.py` `PostgresRepository`, `migrate` · `storage/migrations/*.sql`.
 - `domain/order.py` `create_order`, the one entry point for orders (ADR-0004) · `domain/cart.py` `revalidate` · `observability/masking.py` `mask_text`, `hash_customer` · `observability/logging.py` `configure_logging`.
+- `chats/whatsapp.py` `parse`: reads WhatsApp "Export chat" files · `chats/transcripts.py` `import_exports`, `mask`: raw exports and masked transcripts under `data/private/chats/` (`pedidos-bot chats import`). Tests use invented chats only.
 - `tests/integration/test_repository.py` one contract suite for both repositories. Run PostgreSQL tests with `uv run pytest -m postgres`; the fixture only wipes databases ending in `_test`.
 - `tests/e2e/harness.py` `Chat`: a customer talking to the real engine.
 - `tests/factories.py` `make_config()` small generic config for unit tests.
@@ -58,7 +59,7 @@ Conversational assistant engine that takes burger-restaurant orders over chat. S
 
 ## Security and data
 - Public repo: secrets only in `.env` (ignored); `.env.example` has no values.
-- Real chats only under `data/private/` (ignored). Never copy them into tests, fixtures, docs or commits.
+- Real chats only under `data/private/` (ignored). Never copy them into tests, fixtures, docs or commits. That includes the masked transcripts: masking is best effort.
 - Logs and traces mask phone numbers and addresses; customer identifiers are HMAC'd with `PII_HASH_SALT`.
 - gitleaks runs in pre-commit and CI.
 

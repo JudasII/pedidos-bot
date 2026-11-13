@@ -10,10 +10,12 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from pydantic import ValidationError
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from pedidos_bot import __version__
 from pedidos_bot.app import run_chat, run_telegram
 from pedidos_bot.channels.base import ChannelError
+from pedidos_bot.chats.transcripts import ChatImportError, import_exports
 from pedidos_bot.config.loader import (
     ConfigError,
     config_json_schema_text,
@@ -53,6 +55,25 @@ def build_parser() -> argparse.ArgumentParser:
     nlu_sub = nlu.add_subparsers(dest="nlu_command", required=True)
     nlu_schema = nlu_sub.add_parser("schema", help="print the actions JSON Schema")
     nlu_schema.add_argument("--output", type=Path, help="write to a file instead of stdout")
+
+    chats = sub.add_parser("chats", help="tools for real chats (private data)")
+    chats_sub = chats.add_subparsers(dest="chats_command", required=True)
+    chats_import = chats_sub.add_parser(
+        "import", help="store WhatsApp exports and write their masked transcripts"
+    )
+    chats_import.add_argument(
+        "paths", nargs="+", type=Path, help=".txt or .zip exports, or folders"
+    )
+    chats_import.add_argument("--out", type=Path, default=Path("data/private/chats"))
+    chats_import.add_argument(
+        "--restaurant",
+        action="append",
+        default=[],
+        help="the restaurant's name as it appears in the chats (repeatable)",
+    )
+    chats_import.add_argument(
+        "--month-first", action="store_true", help="dates are month/day, not day/month"
+    )
 
     resolve = sub.add_parser("resolve", help="debug the menu resolver with customer wording")
     resolve.add_argument("--restaurant", required=True)
@@ -110,6 +131,42 @@ def _resolve(args: argparse.Namespace) -> int:
     return 0
 
 
+class _Salt(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    pii_hash_salt: str = ""
+
+
+def _chats_import(args: argparse.Namespace) -> int:
+    out: Path = args.out.resolve()
+    if ("data", "private") not in zip(out.parts, out.parts[1:], strict=False):
+        print("--out must be inside data/private/: real chats live nowhere else", file=sys.stderr)
+        return 1
+    salt = _Salt().pii_hash_salt
+    if not salt:
+        print("PII_HASH_SALT is not set (see .env.example)", file=sys.stderr)
+        return 1
+    try:
+        results = import_exports(
+            args.paths, out, salt=salt, restaurant=args.restaurant, month_first=args.month_first
+        )
+    except ChatImportError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    for result in results:
+        if result.chat_id is None:
+            print(
+                f"{result.export.name}: NOT READ, {result.stray_lines} lines in an unknown format"
+            )
+            continue
+        kinds = ", ".join(f"{count} {kind}" for kind, count in result.kinds)
+        print(f"{result.export.name}: {result.chat_id}, {result.messages} messages ({kinds})")
+    unread = sum(1 for result in results if result.chat_id is None)
+    print(f"{len(results) - unread} transcripts in {out / 'masked'}; originals in {out / 'raw'}")
+    print("Masking is best effort: read the transcripts before using them, and keep them private.")
+    return 1 if unread else 0
+
+
 def _chat(args: argparse.Namespace) -> int:
     try:
         config = load_restaurant(args.restaurant, args.config_dir)
@@ -155,6 +212,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _chat(args)
     if args.command == "run":
         return _run(args)
+    if args.command == "chats":
+        return _chats_import(args)
     if args.command == "resolve":
         return _resolve(args)
     parser.print_help()
