@@ -48,7 +48,8 @@ async def _poll(
             await until(lambda: done() or polling.done())
         finally:
             channel.stop()
-            await polling
+            async with asyncio.timeout(2):  # a turn that never ends must fail, not hang
+                await polling
 
 
 # --- mapping ------------------------------------------------------------------------------
