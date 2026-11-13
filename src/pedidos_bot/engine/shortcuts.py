@@ -15,6 +15,7 @@ from pedidos_bot.engine.actions import (
     CancelOrder,
     Confirm,
     Deny,
+    Greeting,
     SetFulfillment,
     SetPayment,
 )
@@ -55,6 +56,8 @@ _HUMAN = _phrases(
 )  # fmt: skip
 _DELIVERY = _phrases("domicilio", "a domicilio", "para domicilio", "envío", "que me lo traigan")
 _PICKUP = _phrases("recoger", "para recoger", "paso a recoger", "yo recojo", "para llevar")
+_START = "/start"
+"""What a chat app sends when the customer opens the chat. It says nothing about the order."""
 # TODO(#44): decide which other emoji confirm, and in which contexts.
 _CONFIRM_EMOJI = frozenset("👍👌✅")
 
@@ -76,6 +79,8 @@ def detect(message: InboundMessage, resolver: MenuResolver) -> tuple[Action, ...
     if message.kind not in (MessageKind.TEXT, MessageKind.INTERACTIVE_REPLY):
         return (AskHuman(),)
     text = message.content
+    if text.split()[:1] == [_START]:
+        return (Greeting(),)
     key = _key(text)
     if is_confirm(text):
         return (Confirm(),)

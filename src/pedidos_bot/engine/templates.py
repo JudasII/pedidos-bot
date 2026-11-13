@@ -47,6 +47,9 @@ class Msg(StrEnum):
     RECOVER_PROMPT = "recover_prompt"
     NO_LONGER_AVAILABLE = "no_longer_available"
     NOT_UNDERSTOOD = "not_understood"
+    BOT_DISCLOSURE = "bot_disclosure"
+    OFFER_PERSON = "offer_person"
+    TEXT_ONLY = "text_only"
     QUESTION_UNKNOWN = "question_unknown"
     HOURS = "hours"
     HOURS_UNKNOWN = "hours_unknown"
@@ -99,6 +102,12 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.RECOVER_PROMPT: "Tenías un pedido sin terminar: {items}. ¿Lo retomamos?",
         Msg.NO_LONGER_AVAILABLE: "Ya no tenemos {items}.",
         Msg.NOT_UNDERSTOOD: "Perdón, no te entendí. ¿Me lo dices de otra forma?",
+        Msg.BOT_DISCLOSURE: (
+            "Soy el asistente automático de {restaurant}. "
+            "Si prefieres hablar con una persona, escribe “asesor”."
+        ),
+        Msg.OFFER_PERSON: "Si prefieres, te paso con una persona: escribe “asesor”.",
+        Msg.TEXT_ONLY: "Por ahora solo leo mensajes de texto. ¿Me lo escribes?",
         Msg.QUESTION_UNKNOWN: "Eso no te lo sé responder.",
         Msg.HOURS: "Nuestro horario: {hours}.",
         Msg.HOURS_UNKNOWN: "No tengo el horario a la mano.",
@@ -148,6 +157,12 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.RECOVER_PROMPT: "Tenía un pedido sin terminar: {items}. ¿Desea retomarlo?",
         Msg.NO_LONGER_AVAILABLE: "Ya no contamos con {items}.",
         Msg.NOT_UNDERSTOOD: "Disculpe, no le entendí. ¿Podría decirlo de otra forma?",
+        Msg.BOT_DISCLOSURE: (
+            "Le atiende el asistente automático de {restaurant}. "
+            "Si prefiere hablar con una persona, escriba “asesor”."
+        ),
+        Msg.OFFER_PERSON: "Si lo prefiere, le comunico con una persona: escriba “asesor”.",
+        Msg.TEXT_ONLY: "Por ahora solo puedo leer mensajes de texto. ¿Podría escribirlo?",
         Msg.QUESTION_UNKNOWN: "No tengo esa información.",
         Msg.HOURS: "Nuestro horario: {hours}.",
         Msg.HOURS_UNKNOWN: "No tengo el horario disponible.",
