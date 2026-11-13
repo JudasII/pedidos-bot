@@ -53,9 +53,12 @@ uv run pedidos-bot resolve --restaurant burger_demo "malteda de fresa"
 uv run pedidos-bot chat --restaurant burger_demo
 docker compose up -d db          # PostgreSQL on port 5433
 uv run pytest -m postgres        # repository tests against it
+uv run pedidos-bot run --restaurant burger_demo   # answer customers on Telegram
 ```
 
-Restaurant configs live in `config/restaurants/<id>.yaml` and are validated against [docs/config.schema.json](docs/config.schema.json) (editors with YAML language support autocomplete from it). Commands to chat with the bot (terminal REPL and Telegram) arrive in milestones M2 and M4.
+`run` needs `TELEGRAM_BOT_TOKEN` and `DATABASE_URL` in `.env` and the database running. One process serves one restaurant with its own bot and database (ADR-0005). Until M5 it answers with the rule-based fake LLM.
+
+Restaurant configs live in `config/restaurants/<id>.yaml` and are validated against [docs/config.schema.json](docs/config.schema.json) (editors with YAML language support autocomplete from it).
 
 ## Metrics
 
