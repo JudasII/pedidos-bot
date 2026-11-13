@@ -9,8 +9,11 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from pedidos_bot import __version__
-from pedidos_bot.channels.terminal import run_chat
+from pedidos_bot.app import run_chat, run_telegram
+from pedidos_bot.channels.base import ChannelError
 from pedidos_bot.config.loader import (
     ConfigError,
     config_json_schema_text,
@@ -20,6 +23,7 @@ from pedidos_bot.config.loader import (
 from pedidos_bot.engine.actions import actions_json_schema
 from pedidos_bot.engine.resolver import MenuResolver
 from pedidos_bot.observability.logging import configure_logging
+from pedidos_bot.settings import Settings
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -40,6 +44,10 @@ def build_parser() -> argparse.ArgumentParser:
     chat = sub.add_parser("chat", help="chat with the bot in the terminal, with the fake LLM")
     chat.add_argument("--restaurant", required=True)
     chat.add_argument("--config-dir", type=Path, default=Path("config/restaurants"))
+
+    run = sub.add_parser("run", help="answer customers on Telegram (settings come from .env)")
+    run.add_argument("--restaurant", required=True)
+    run.add_argument("--config-dir", type=Path, default=Path("config/restaurants"))
 
     nlu = sub.add_parser("nlu", help="LLM contract tools")
     nlu_sub = nlu.add_subparsers(dest="nlu_command", required=True)
@@ -113,6 +121,26 @@ def _chat(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run(args: argparse.Namespace) -> int:
+    try:
+        config = load_restaurant(args.restaurant, args.config_dir)
+        settings = Settings()  # type: ignore[call-arg]  # values come from the environment
+    except ConfigError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    except ValidationError as exc:
+        # Names only: the values are secrets.
+        missing = ", ".join(str(error["loc"][0]).upper() for error in exc.errors())
+        print(f"missing or invalid settings: {missing} (see .env.example)", file=sys.stderr)
+        return 1
+    try:
+        asyncio.run(run_telegram(config, settings))
+    except ChannelError as exc:
+        print(f"telegram: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -125,6 +153,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _schema(text, args.output)
     if args.command == "chat":
         return _chat(args)
+    if args.command == "run":
+        return _run(args)
     if args.command == "resolve":
         return _resolve(args)
     parser.print_help()

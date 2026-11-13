@@ -79,7 +79,6 @@ def test_anything_more_goes_to_the_llm(text: str) -> None:
         MessageKind.LOCATION,
         MessageKind.IMAGE,
         MessageKind.DOCUMENT,
-        MessageKind.STICKER,
         MessageKind.UNSUPPORTED,
     ],
 )

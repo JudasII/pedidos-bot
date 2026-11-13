@@ -162,6 +162,25 @@ async def test_a_failed_send_is_retried_when_due(
     assert await _pending_keys(repository) == []
 
 
+async def test_a_failed_send_waits_as_long_as_the_channel_asks(
+    repository: ConversationRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(base, "BASE_RETRY_DELAY", timedelta(0))
+    await _enqueue(repository, "slow", "fast")
+    attempts: list[str] = []
+
+    async def limited(entry: OutboxEntry) -> None:
+        attempts.append(entry.dedupe_key)
+        wait = timedelta(hours=1) if entry.dedupe_key == "slow" else timedelta(0)
+        if attempts.count(entry.dedupe_key) == 1:
+            raise ChannelError("too many requests", retry_after=wait)
+
+    while await repository.deliver_next(limited):
+        pass
+    assert attempts == ["slow", "fast", "fast"]
+    assert await _pending_keys(repository) == ["slow"]
+
+
 async def test_a_message_that_keeps_failing_is_given_up(
     repository: ConversationRepository, monkeypatch: pytest.MonkeyPatch
 ) -> None:

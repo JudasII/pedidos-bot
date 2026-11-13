@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from pedidos_bot import __version__
-from pedidos_bot.channels.terminal import run_chat
+from pedidos_bot.app import run_chat
 from pedidos_bot.cli import main
 from pedidos_bot.config.loader import load_restaurant
 
@@ -78,3 +78,16 @@ def test_chat_ends_on_end_of_input() -> None:
 def test_chat_reports_an_unknown_restaurant(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["chat", "--restaurant", "nope"]) == 1
     assert "file not found" in capsys.readouterr().err
+
+
+def test_run_names_the_missing_settings_without_their_values(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)  # no .env here
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "")  # as copied from .env.example
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:hunter2@localhost/db")
+    config_dir = str(ROOT / "config" / "restaurants")
+    assert main(["run", "--restaurant", "minimal_demo", "--config-dir", config_dir]) == 1
+    err = capsys.readouterr().err
+    assert "TELEGRAM_BOT_TOKEN" in err
+    assert "hunter2" not in err

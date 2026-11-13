@@ -14,7 +14,7 @@ from typing import Protocol
 
 import structlog
 
-from pedidos_bot.channels.base import Channel, InboundMessage, OutboundMessage
+from pedidos_bot.channels.base import Channel, ChannelError, InboundMessage, OutboundMessage
 from pedidos_bot.domain.order import Order
 from pedidos_bot.engine.conversation import Conversation
 
@@ -42,6 +42,13 @@ def log_given_up(entry: OutboxEntry) -> None:
 def retry_delay(attempts: int) -> timedelta:
     """Wait before the next try, after `attempts` failures: doubles, up to `MAX_RETRY_DELAY`."""
     return min(BASE_RETRY_DELAY * (1 << (attempts - 1)), MAX_RETRY_DELAY)
+
+
+def delay_after(error: Exception, attempts: int) -> timedelta:
+    """The wait after a failed send: what the channel asked for, else our own backoff."""
+    if isinstance(error, ChannelError) and error.retry_after is not None:
+        return error.retry_after
+    return retry_delay(attempts)
 
 
 class TurnScope(Protocol):

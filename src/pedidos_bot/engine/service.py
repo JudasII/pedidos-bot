@@ -126,6 +126,12 @@ class ConversationService:
         return replace(result, conversation=stamped)
 
     async def _respond(self, conversation: Conversation, inbound: InboundMessage) -> TurnResult:
+        in_handoff = conversation.lifecycle.state is LifecycleState.HANDOFF
+        if inbound.kind is MessageKind.STICKER and not in_handoff:
+            # A sticker asks for nothing: say what we can read and leave the order as it is.
+            return TurnResult(
+                conversation, OutboundMessage(text=self._responder.text(Msg.TEXT_ONLY))
+            )
         offer = conversation.resume_offer
         if offer is not None and offer.cart is not None and self._menu_changed(conversation):
             stale = conversation.model_copy(update={"cart": offer.cart, "resume_offer": None})

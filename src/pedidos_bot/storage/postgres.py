@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from pathlib import Path
 from typing import Self
 
@@ -20,8 +21,8 @@ from pedidos_bot.storage.base import (
     OutboxEntry,
     Sender,
     TurnScope,
+    delay_after,
     log_given_up,
-    retry_delay,
 )
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
@@ -169,8 +170,9 @@ class PostgresRepository:
             entry = OutboxEntry(chat_ref, OutboundMessage.model_validate(message), dedupe_key)
             try:
                 await send(entry)
-            except Exception:
-                await self._record_failure(connection, entry, row_id, attempts + 1)
+            except Exception as error:
+                delay = delay_after(error, attempts + 1)
+                await self._record_failure(connection, entry, row_id, attempts + 1, delay)
             else:
                 await connection.execute(
                     "UPDATE outbox SET sent_at = now() WHERE id = %s", (row_id,)
@@ -178,13 +180,18 @@ class PostgresRepository:
             return True
 
     async def _record_failure(
-        self, connection: AsyncConnection, entry: OutboxEntry, row_id: int, attempts: int
+        self,
+        connection: AsyncConnection,
+        entry: OutboxEntry,
+        row_id: int,
+        attempts: int,
+        delay: timedelta,
     ) -> None:
         await connection.execute(
             """UPDATE outbox SET attempts = %s, next_attempt_at = now() + %s,
                    failed_at = CASE WHEN %s THEN now() END
                WHERE id = %s""",
-            (attempts, retry_delay(attempts), attempts >= MAX_SEND_ATTEMPTS, row_id),
+            (attempts, delay, attempts >= MAX_SEND_ATTEMPTS, row_id),
         )
         if attempts >= MAX_SEND_ATTEMPTS:
             log_given_up(entry)

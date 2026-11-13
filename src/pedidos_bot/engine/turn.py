@@ -518,9 +518,14 @@ class Turn:
             self._update(misunderstood=self.conversation.misunderstood + 1)
             if self.conversation.misunderstood >= MAX_MISUNDERSTOOD:
                 self._start_handoff()
-            elif not self._notes:
-                # TODO(#42): offer a person here, before the customer gets frustrated.
-                self._note(Msg.NOT_UNDERSTOOD)
+            else:
+                if not self._notes:
+                    self._note(Msg.NOT_UNDERSTOOD)
+                # Offered before the escalation: a frustrated customer just leaves.
+                self._note(Msg.OFFER_PERSON)
+        if not self.conversation.greeted:
+            name = self._config.restaurant.name
+            self._notes.insert(0, self._responder.text(Msg.BOT_DISCLOSURE, restaurant=name))
         if self._final is not None:
             self._update(asked=None, asked_choice=None, options=())
             return OutboundMessage(text="\n\n".join([*self._notes, self._final]))
