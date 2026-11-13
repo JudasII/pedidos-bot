@@ -91,3 +91,15 @@ def test_run_names_the_missing_settings_without_their_values(
     err = capsys.readouterr().err
     assert "TELEGRAM_BOT_TOKEN" in err
     assert "hunter2" not in err
+
+
+def test_run_needs_the_staff_chat_named_by_the_config(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:not-a-real-token")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/db")
+    monkeypatch.delenv("MINIMAL_DEMO_STAFF_CHAT_ID", raising=False)
+    config_dir = str(ROOT / "config" / "restaurants")
+    assert main(["run", "--restaurant", "minimal_demo", "--config-dir", config_dir]) == 1
+    assert "MINIMAL_DEMO_STAFF_CHAT_ID" in capsys.readouterr().err

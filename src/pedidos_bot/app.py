@@ -17,6 +17,7 @@ from pedidos_bot.channels.terminal import EXIT, TerminalChannel
 from pedidos_bot.config.schema import RestaurantConfig
 from pedidos_bot.engine.resolver import MenuResolver
 from pedidos_bot.engine.service import ConversationService
+from pedidos_bot.engine.staff import parse_staff
 from pedidos_bot.llm.fake import RuleBasedLLM
 from pedidos_bot.observability.logging import configure_logging
 from pedidos_bot.settings import Settings
@@ -31,20 +32,36 @@ _logger = structlog.get_logger()
 
 
 def build_service(
-    config: RestaurantConfig, repository: ConversationRepository, pii_salt: str | None = None
+    config: RestaurantConfig,
+    repository: ConversationRepository,
+    pii_salt: str | None = None,
+    staff_chat: str | None = None,
 ) -> ConversationService:
     # TODO(M5): the real LLM goes here; until then every process uses the rule-based fake.
     llm = RuleBasedLLM(MenuResolver(config))
-    return ConversationService(config, llm, repository, pii_salt)
+    return ConversationService(config, llm, repository, pii_salt, staff_chat)
 
 
 def reply_through(
-    service: ConversationService, repository: ConversationRepository, channel: Channel
+    service: ConversationService,
+    repository: ConversationRepository,
+    channel: Channel,
+    staff_chat: str | None = None,
 ) -> InboundHandler:
-    """Handle a message and send what it left in the outbox, without waiting for the loop."""
+    """Handle a message and send what it left in the outbox, without waiting for the loop.
+
+    What comes from the staff chat is never a customer's turn: it is read as a staff action,
+    and ignored if it isn't one.
+    """
 
     async def on_inbound(inbound: InboundMessage) -> None:
-        await service.handle(inbound)
+        if staff_chat is not None and inbound.chat_ref == staff_chat:
+            decision = parse_staff(inbound)
+            if decision is None:
+                return
+            await service.handle_staff(decision)
+        else:
+            await service.handle(inbound)
         await deliver_pending(repository, channel)
 
     return on_inbound
@@ -67,19 +84,20 @@ async def serve(
     repository: ConversationRepository,
     channel: Channel,
     pii_salt: str | None = None,
+    staff_chat: str | None = None,
 ) -> None:
-    """Answer customers until the channel stops."""
-    service = build_service(config, repository, pii_salt)
+    """Answer customers and staff until the channel stops."""
+    service = build_service(config, repository, pii_salt, staff_chat)
     outbox = asyncio.create_task(deliver_forever(repository, channel))
     try:
-        await channel.start(reply_through(service, repository, channel))
+        await channel.start(reply_through(service, repository, channel, staff_chat))
     finally:
         outbox.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await outbox
 
 
-async def run_telegram(config: RestaurantConfig, settings: Settings) -> None:
+async def run_telegram(config: RestaurantConfig, settings: Settings, staff_chat: str) -> None:
     """One process for one restaurant: its bot and its database (ADR-0005)."""
     configure_logging(settings.log_level)
     token = settings.telegram_bot_token.get_secret_value()
@@ -87,12 +105,12 @@ async def run_telegram(config: RestaurantConfig, settings: Settings) -> None:
         PostgresRepository.open(settings.database_url) as repository,
         httpx.AsyncClient() as client,
     ):
-        channel = TelegramChannel(token, client)
+        channel = TelegramChannel(token, client, staff_chat=staff_chat)
         loop = asyncio.get_running_loop()
         for stop_signal in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(stop_signal, channel.stop)
         _logger.info("telegram_started", restaurant=config.restaurant.id)
-        await serve(config, repository, channel, settings.pii_hash_salt)
+        await serve(config, repository, channel, settings.pii_hash_salt, staff_chat)
         _logger.info("telegram_stopped", restaurant=config.restaurant.id)
 
 

@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from dotenv import dotenv_values
 from pydantic import ValidationError
 
 from pedidos_bot import __version__
@@ -19,6 +21,7 @@ from pedidos_bot.config.loader import (
     config_json_schema_text,
     load_config,
     load_restaurant,
+    resolve_staff_chat_id,
 )
 from pedidos_bot.engine.actions import actions_json_schema
 from pedidos_bot.engine.resolver import MenuResolver
@@ -125,6 +128,9 @@ def _run(args: argparse.Namespace) -> int:
     try:
         config = load_restaurant(args.restaurant, args.config_dir)
         settings = Settings()  # type: ignore[call-arg]  # values come from the environment
+        # The staff chat's variable is named by the config, so it is read apart from Settings.
+        dotenv = {name: value for name, value in dotenv_values(".env").items() if value}
+        staff_chat = resolve_staff_chat_id(config, {**dotenv, **os.environ})
     except ConfigError as exc:
         print(exc, file=sys.stderr)
         return 1
@@ -134,7 +140,7 @@ def _run(args: argparse.Namespace) -> int:
         print(f"missing or invalid settings: {missing} (see .env.example)", file=sys.stderr)
         return 1
     try:
-        asyncio.run(run_telegram(config, settings))
+        asyncio.run(run_telegram(config, settings, staff_chat))
     except ChannelError as exc:
         print(f"telegram: {exc}", file=sys.stderr)
         return 1

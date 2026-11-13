@@ -56,6 +56,9 @@ TRANSITIONS: dict[tuple[LifecycleState, Event], LifecycleState] = {
 }
 """`HANDOFF_ENDED` is not here: it returns to whatever state the handoff interrupted."""
 
+_STAFF_DECISIONS = frozenset({_E.STAFF_APPROVED, _E.STAFF_REJECTED})
+"""These can arrive while a person is talking to the customer; the handoff goes on."""
+
 TERMINAL_STATES = frozenset({_S.CONFIRMED, _S.CANCELLED, _S.EXPIRED})
 
 
@@ -77,7 +80,12 @@ class Lifecycle(BaseModel):
     def can(self, event: Event) -> bool:
         if event is Event.HANDOFF_ENDED:
             return self.state is LifecycleState.HANDOFF
+        if self._decided_during_handoff(event):
+            return (self.before_handoff, event) in TRANSITIONS
         return (self.state, event) in TRANSITIONS
+
+    def _decided_during_handoff(self, event: Event) -> bool:
+        return self.state is LifecycleState.HANDOFF and event in _STAFF_DECISIONS
 
     def apply(self, event: Event) -> Lifecycle:
         if not self.can(event):
@@ -85,5 +93,9 @@ class Lifecycle(BaseModel):
         if event is Event.HANDOFF_ENDED:
             assert self.before_handoff is not None
             return Lifecycle(state=self.before_handoff)
+        if self._decided_during_handoff(event):
+            assert self.before_handoff is not None
+            after = TRANSITIONS[self.before_handoff, event]
+            return Lifecycle(state=LifecycleState.HANDOFF, before_handoff=after)
         before = self.state if event is Event.HANDOFF_REQUESTED else None
         return Lifecycle(state=TRANSITIONS[self.state, event], before_handoff=before)
