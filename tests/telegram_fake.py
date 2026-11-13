@@ -26,6 +26,17 @@ def make_update(
     return {"update_id": update_id, "message": message}
 
 
+def make_tap(update_id: int, data: str, chat_id: int = -100, user_id: int = 55) -> Any:
+    """A tap on an inline button of a message in `chat_id`."""
+    callback = {
+        "id": f"cb{update_id}",
+        "from": {"id": user_id, "first_name": "Cajero"},
+        "message": {"message_id": 1, "date": SENT_AT, "chat": {"id": chat_id, "type": "group"}},
+        "data": data,
+    }
+    return {"update_id": update_id, "callback_query": callback}
+
+
 class FakeTelegram:
     """Keeps updates until they are confirmed with a higher offset, like the real one."""
 
@@ -33,6 +44,7 @@ class FakeTelegram:
         self.updates = list(updates)
         self.offsets: list[int | None] = []
         self.sent: list[dict[str, Any]] = []
+        self.acknowledged: list[str] = []
         self.failures: list[httpx.Response | Exception] = []
         """Answers to give instead of the real one, oldest first."""
 
@@ -52,6 +64,9 @@ class FakeTelegram:
             if not self.updates:
                 await asyncio.sleep(0.005)  # stands in for the long poll
             return ok(list(self.updates))
+        if request.url.path.endswith("/answerCallbackQuery"):
+            self.acknowledged.append(body["callback_query_id"])
+            return ok(True)
         assert request.url.path.endswith("/sendMessage")
         self.sent.append(body)
         return ok({"message_id": 900 + len(self.sent)})
