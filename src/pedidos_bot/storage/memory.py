@@ -72,7 +72,11 @@ class InMemoryRepository:
 
     async def deliver_next(self, send: Sender) -> bool:
         now = datetime.now(UTC)
-        due = next((i for i in self._outbox if i.next_attempt_at <= now and not i.claimed), None)
+        heads: dict[str, _Pending] = {}
+        for item in self._outbox:  # oldest first: the first of each chat is its head
+            heads.setdefault(item.entry.chat_ref, item)
+        ready = (i for i in heads.values() if i.next_attempt_at <= now and not i.claimed)
+        due = next(ready, None)
         if due is None:
             return False
         due.claimed = True
