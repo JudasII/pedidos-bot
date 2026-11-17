@@ -135,3 +135,65 @@ def test_the_command_needs_the_salt(
     monkeypatch.setenv("PII_HASH_SALT", "")
     assert main(["chats", "import", str(_exports(tmp_path / "inbox"))]) == 1
     assert "PII_HASH_SALT" in capsys.readouterr().err
+
+
+def test_two_snapshots_of_one_chat_cannot_tell_who_the_restaurant_is(tmp_path: Path) -> None:
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    (inbox / "lunes.txt").write_text(ANA, encoding="utf-8")
+    (inbox / "martes.txt").write_text(ANA + EXTRA, encoding="utf-8")
+    with pytest.raises(ChatImportError, match="--restaurant") as raised:
+        import_exports([inbox], tmp_path / "out", salt=SALT)
+    assert "Ana Prueba" in str(raised.value) and "Local Demo" in str(raised.value)
+    assert not (tmp_path / "out").exists()
+
+
+EXTRA = "12/11/26, 8:55 p. m. - Ana Prueba: gracias!\n"
+SHORT = "".join(ANA.splitlines(keepends=True)[:2])
+
+
+def _import(tmp_path: Path, name: str, export: str) -> tuple[int, int]:
+    """Import one export; returns (lines in the transcript, lines that were new)."""
+    path = tmp_path / name
+    path.write_text(export, encoding="utf-8")
+    [result] = import_exports([path], tmp_path / "out", salt=SALT, restaurant=["Local Demo"])
+    return result.messages, result.added
+
+
+def _stored(tmp_path: Path) -> list[str]:
+    [path] = (tmp_path / "out" / "masked").glob("*.json")
+    return [line["text"] for line in json.loads(path.read_text(encoding="utf-8"))["lines"]]
+
+
+def test_a_shorter_snapshot_after_a_longer_one_loses_nothing(tmp_path: Path) -> None:
+    assert _import(tmp_path, "full.txt", ANA) == (6, 6)
+    before = _stored(tmp_path)
+    assert _import(tmp_path, "short.txt", SHORT) == (6, 0)
+    assert _stored(tmp_path) == before
+
+
+def test_a_longer_snapshot_adds_what_is_new(tmp_path: Path) -> None:
+    assert _import(tmp_path, "short.txt", SHORT) == (2, 2)
+    assert _import(tmp_path, "full.txt", ANA + EXTRA) == (7, 5)
+    assert _stored(tmp_path)[-1] == "gracias!"
+
+
+def test_snapshots_that_overlap_in_the_middle_are_joined_in_order(tmp_path: Path) -> None:
+    lines = (ANA + EXTRA).splitlines(keepends=True)
+    assert _import(tmp_path, "early.txt", "".join(lines[:4])) == (4, 4)
+    assert _import(tmp_path, "late.txt", "".join(lines[2:])) == (7, 3)
+    assert _stored(tmp_path) == [
+        line.text for line in mask(parse(ANA + EXTRA), {"Local Demo"}, SALT).lines
+    ]
+
+
+def test_messages_that_repeat_are_not_collapsed(tmp_path: Path) -> None:
+    twice = "12/11/26, 9:00 p. m. - Ana Prueba: ok\n12/11/26, 9:00 p. m. - Ana Prueba: ok\n"
+    assert _import(tmp_path, "a.txt", ANA + twice) == (8, 8)
+    assert _import(tmp_path, "b.txt", ANA + twice) == (8, 0)
+
+
+def test_a_message_that_differs_between_snapshots_is_kept_both_ways(tmp_path: Path) -> None:
+    deleted = ANA.replace("Hola! ¿A dónde te lo enviamos?", "Se eliminó este mensaje")
+    _import(tmp_path, "before.txt", ANA)
+    assert _import(tmp_path, "after.txt", deleted) == (7, 1)

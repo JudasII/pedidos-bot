@@ -160,7 +160,10 @@ def _chats_import(args: argparse.Namespace) -> int:
             )
             continue
         kinds = ", ".join(f"{count} {kind}" for kind, count in result.kinds)
-        print(f"{result.export.name}: {result.chat_id}, {result.messages} messages ({kinds})")
+        new = f"{result.added} new" if result.added else "nothing new"
+        print(
+            f"{result.export.name}: {result.chat_id}, {result.messages} messages, {new} ({kinds})"
+        )
     unread = sum(1 for result in results if result.chat_id is None)
     print(f"{len(results) - unread} transcripts in {out / 'masked'}; originals in {out / 'raw'}")
     print("Masking is best effort: read the transcripts before using them, and keep them private.")

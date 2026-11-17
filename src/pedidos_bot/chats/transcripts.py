@@ -3,6 +3,10 @@
     <out>/raw/      the exports as they arrived
     <out>/masked/   one JSON file per conversation, without names, phones or addresses
 
+Exports of the same chat (a snapshot today, another next week) land in the same transcript.
+They are joined in order and nothing is ever dropped: a message present in both appears
+once, and one that differs between them (deleted or edited meanwhile) is kept both ways.
+
 Masking is best effort. It removes what has a shape (phones, street addresses, emails,
 links) and the names of the people in the chat. It can't know a name someone mentions, or
 an address given as "next to the bakery". So masked transcripts stay private too: nothing
@@ -19,6 +23,7 @@ from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Literal
 
@@ -59,6 +64,9 @@ class Imported:
     chat_id: str | None
     """None if nothing could be read from the export."""
     messages: int = 0
+    """Lines in the transcript after this import."""
+    added: int = 0
+    """How many of them this export brought."""
     notices: int = 0
     stray_lines: int = 0
     kinds: tuple[tuple[str, int], ...] = ()
@@ -130,11 +138,6 @@ def import_exports(
     exports = find_exports(paths)
     chats = [(path, parse(read_export(path), month_first=month_first)) for path in exports]
     staff = set(restaurant) or _in_every_chat([chat for _, chat in chats if chat.messages])
-    if not staff:
-        raise ChatImportError(
-            "can't tell who the restaurant is: pass its name as it appears in the chats "
-            "(--restaurant), or import several chats at once"
-        )
     raw, masked = out / "raw", out / "masked"
     raw.mkdir(parents=True, exist_ok=True)
     masked.mkdir(parents=True, exist_ok=True)
@@ -146,6 +149,10 @@ def import_exports(
             continue
         transcript = mask(chat, staff, salt, export=path.name)
         target = masked / f"{transcript.chat_id}.json"
+        known: tuple[Line, ...] = ()
+        if target.exists():
+            known = Transcript.model_validate_json(target.read_text(encoding="utf-8")).lines
+        transcript = transcript.model_copy(update={"lines": join(known, transcript.lines)})
         target.write_text(transcript.model_dump_json(indent=2) + "\n", encoding="utf-8")
         kinds = Counter(line.kind for line in transcript.lines)
         results.append(
@@ -153,6 +160,7 @@ def import_exports(
                 path,
                 transcript.chat_id,
                 messages=len(transcript.lines),
+                added=len(transcript.lines) - len(known),
                 notices=chat.notices,
                 stray_lines=chat.stray_lines,
                 kinds=tuple(sorted(kinds.items())),
@@ -161,11 +169,31 @@ def import_exports(
     return results
 
 
+def join(known: tuple[Line, ...], new: tuple[Line, ...]) -> tuple[Line, ...]:
+    """Two snapshots of one chat as a single transcript, in order, dropping nothing."""
+    joined: list[Line] = []
+    matcher = SequenceMatcher(a=known, b=new, autojunk=False)
+    for change, a_from, a_to, b_from, b_to in matcher.get_opcodes():
+        if change == "equal":
+            joined += known[a_from:a_to]
+        else:  # only in one of them, or different in each: keep it all, by time
+            joined += sorted(known[a_from:a_to] + new[b_from:b_to], key=lambda line: line.at)
+    return tuple(joined)
+
+
 def _in_every_chat(chats: list[ParsedChat]) -> set[str]:
-    """Whoever writes in all the chats is the restaurant. One chat alone can't tell."""
-    if len(chats) < 2:
-        return set()
-    return set.intersection(*(chat.senders for chat in chats))
+    """The one sender who writes in all the chats is the restaurant. Never a guess."""
+    shared = set.intersection(*(chat.senders for chat in chats)) if len(chats) > 1 else set()
+    if len(shared) == 1:
+        return shared
+    if not shared:
+        reason = "nobody writes in every chat" if len(chats) > 1 else "one chat alone can't tell"
+    else:
+        reason = f"{', '.join(sorted(shared))} all write in every chat"
+    raise ChatImportError(
+        f"can't tell who the restaurant is ({reason}): pass its name as it appears in the "
+        "chats with --restaurant"
+    )
 
 
 def _store(export: Path, raw: Path) -> None:
