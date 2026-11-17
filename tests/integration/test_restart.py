@@ -1,5 +1,7 @@
 """A process restart in the middle of an order, against real PostgreSQL."""
 
+import asyncio
+
 import pytest
 
 from pedidos_bot.channels.memory import InMemoryChannel
@@ -68,3 +70,31 @@ async def test_staff_decide_on_an_order_stored_in_postgres(database_url: str) ->
     ]
     assert approved.id == sent.id and approved.revision == 2
     assert chat.state is LifecycleState.CONFIRMED
+
+
+async def test_a_turn_needs_only_one_connection(database_url: str) -> None:
+    """With a pool of one, a turn that asked for a second connection would wait forever."""
+    async with PostgresRepository.open(database_url, max_connections=1) as repository:
+        chat = Chat(CONFIG, repository=repository)
+        async with asyncio.timeout(10):
+            for text in ("una sencilla", "no", "para recoger", "nequi", "sí"):
+                await chat.say(text)
+            await chat.say("agrega una doble")  # withdraws the order: reads it to tell staff
+            await chat.say("sí")  # sends it again: reads it to keep its id
+            await chat.say("cancelar")
+        assert chat.state is LifecycleState.CANCELLED
+        assert "No lo preparen" in chat.staff[-1].text
+
+
+async def test_two_turns_at_once_fit_in_a_pool_of_two(database_url: str) -> None:
+    async with PostgresRepository.open(database_url, max_connections=2) as repository:
+        chats = [
+            Chat(CONFIG, repository=repository, chat_ref=name, first_message_id=first)
+            for name, first in (("ana", 1), ("luis", 1000))
+        ]
+        for chat in chats:
+            for text in ("una sencilla", "no", "para recoger", "nequi", "sí"):
+                await chat.say(text)
+        async with asyncio.timeout(10):
+            await asyncio.gather(*(chat.say("cancelar") for chat in chats))
+        assert [chat.state for chat in chats] == [LifecycleState.CANCELLED] * 2

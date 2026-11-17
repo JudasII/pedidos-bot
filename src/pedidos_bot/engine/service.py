@@ -101,13 +101,13 @@ class ConversationService:
                 if result.reply is not None:
                     scope.enqueue(OutboxEntry(inbound.chat_ref, result.reply, key))
                 if result.order is not None:
-                    order = await self._keeping_its_id(result.order)
+                    order = await _keeping_its_id(scope, result.order)
                     result = replace(result, order=order)
                     scope.place_order(order)
                     self._tell_staff(scope, order_notification(order, self._config), key)
                 if result.withdrawn_order is not None:
                     scope.withdraw_order(result.withdrawn_order)
-                    withdrawn = await self._repository.load_order(result.withdrawn_order)
+                    withdrawn = await scope.load_order(result.withdrawn_order)
                     if withdrawn is not None:
                         self._tell_staff(scope, withdrawn_notice(withdrawn), f"{key}:withdrawn")
         except Exception as exc:
@@ -127,13 +127,6 @@ class ConversationService:
             latency_ms=_since(started),
         )
         return result
-
-    async def _keeping_its_id(self, order: Order) -> Order:
-        """A revised order is the same order: staff must see the code they already know."""
-        if order.revision == 1:
-            return order
-        previous = await self._repository.load_order(order.idempotency_key)
-        return order if previous is None else order.model_copy(update={"id": previous.id})
 
     def _tell_staff(self, scope: TurnScope, message: OutboundMessage, key: str) -> None:
         if self._staff_chat is not None:
@@ -344,6 +337,14 @@ class ConversationService:
             actions=turn.actions,
             notices=tuple(turn.notices),
         )
+
+
+async def _keeping_its_id(scope: TurnScope, order: Order) -> Order:
+    """A revised order is the same order: staff must see the code they already know."""
+    if order.revision == 1:
+        return order
+    previous = await scope.load_order(order.idempotency_key)
+    return order if previous is None else order.model_copy(update={"id": previous.id})
 
 
 def _since(started: float) -> int:

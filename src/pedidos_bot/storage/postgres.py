@@ -63,7 +63,9 @@ class PostgresRepository:
 
         A turn holds a connection for its whole LLM call, so this caps concurrent turns.
         """
-        pool = AsyncConnectionPool(database_url, min_size=2, max_size=max_connections, open=False)
+        pool = AsyncConnectionPool(
+            database_url, min_size=min(2, max_connections), max_size=max_connections, open=False
+        )
         async with pool:
             async with pool.connection() as connection:
                 await migrate(connection)
@@ -80,7 +82,12 @@ class PostgresRepository:
             if await cursor.fetchone() is None:
                 yield None
                 return
-            scope = BufferedScope(await self._lock_conversation(connection, inbound))
+
+            async def load_order(idempotency_key: str) -> Order | None:
+                return await _load_order(connection, idempotency_key)
+
+            conversation = await self._lock_conversation(connection, inbound)
+            scope = BufferedScope(conversation, load_order)
             yield scope
             await connection.execute(
                 """UPDATE conversations SET state = %s, updated_at = now()
@@ -139,11 +146,7 @@ class PostgresRepository:
 
     async def load_order(self, idempotency_key: str) -> Order | None:
         async with self._pool.connection() as connection:
-            cursor = await connection.execute(
-                "SELECT data FROM orders WHERE idempotency_key = %s", (idempotency_key,)
-            )
-            row = await cursor.fetchone()
-        return Order.model_validate(row[0]) if row else None
+            return await _load_order(connection, idempotency_key)
 
     async def pending_outbound(self) -> list[OutboxEntry]:
         async with self._pool.connection() as connection:
@@ -195,6 +198,14 @@ class PostgresRepository:
         )
         if attempts >= MAX_SEND_ATTEMPTS:
             log_given_up(entry)
+
+
+async def _load_order(connection: AsyncConnection, idempotency_key: str) -> Order | None:
+    cursor = await connection.execute(
+        "SELECT data FROM orders WHERE idempotency_key = %s", (idempotency_key,)
+    )
+    row = await cursor.fetchone()
+    return Order.model_validate(row[0]) if row else None
 
 
 def _json(model: Conversation | OutboundMessage | Order) -> Jsonb:

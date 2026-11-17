@@ -266,6 +266,22 @@ async def test_saving_an_order_with_the_same_key_revises_it(
     assert saved.cart.lines[0].qty == 2
 
 
+async def test_a_turn_reads_orders_without_leaving_the_turn(
+    repository: ConversationRepository,
+) -> None:
+    async with repository.turn(_inbound("1")) as scope:
+        assert scope is not None
+        assert await scope.load_order("key") is None
+        scope.place_order(_order(1))
+    async with repository.turn(_inbound("2")) as scope:
+        assert scope is not None
+        stored = await scope.load_order("key")
+        assert stored is not None and stored.cart.lines[0].qty == 1
+        scope.place_order(_order(3))
+        again = await scope.load_order("key")
+        assert again is not None and again.cart.lines[0].qty == 1  # as stored before the turn
+
+
 async def test_a_withdrawn_order_keeps_its_data(repository: ConversationRepository) -> None:
     async with repository.turn(_inbound("1")) as scope:
         assert scope is not None

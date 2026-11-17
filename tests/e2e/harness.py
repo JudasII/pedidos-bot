@@ -33,10 +33,12 @@ class Chat:
         repository: ConversationRepository | None = None,
         first_message_id: int = 1,
         staff_chat: str | None = "staff",
+        chat_ref: str = "chat",
     ) -> None:
         self.repository = repository or InMemoryRepository()
         self.channel = InMemoryChannel(capabilities)
         self.staff_chat = staff_chat
+        self.chat_ref = chat_ref
         self.service = ConversationService(
             config,
             llm or RuleBasedLLM(MenuResolver(config)),
@@ -54,7 +56,7 @@ class Chat:
         return InboundMessage(
             channel="test",
             external_id=external_id or str(next(self._ids)),
-            chat_ref="chat",
+            chat_ref=self.chat_ref,
             customer_ref="customer",
             sent_at=self._now,
             kind=kind,
@@ -71,7 +73,7 @@ class Chat:
         return self._seen_since(before)
 
     def _seen_since(self, before: int) -> str:
-        new = [sent for sent in self.channel.sent[before:] if sent.chat_ref == "chat"]
+        new = [sent for sent in self.channel.sent[before:] if sent.chat_ref == self.chat_ref]
         return "\n".join(sent.message.text for sent in new)
 
     @property
@@ -100,7 +102,7 @@ class Chat:
         assert decision is not None
         before = len(self.channel.sent)
         await self.service.handle_staff(decision)
-        loaded = await self.repository.load("test", "chat")
+        loaded = await self.repository.load("test", self.chat_ref)
         self._conversation = loaded or self._conversation
         await deliver_pending(self.repository, self.channel)
         return self._seen_since(before)
@@ -113,7 +115,7 @@ class Chat:
 
     @property
     def reply(self) -> OutboundMessage:
-        return next(s.message for s in reversed(self.channel.sent) if s.chat_ref == "chat")
+        return next(s.message for s in reversed(self.channel.sent) if s.chat_ref == self.chat_ref)
 
     @property
     def conversation(self) -> Conversation:

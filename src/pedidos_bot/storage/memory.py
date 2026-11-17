@@ -48,7 +48,8 @@ class InMemoryRepository:
                 yield None
                 return
             current = self.conversations.get(key)
-            scope = BufferedScope(current or Conversation(channel=key[0], chat_ref=key[1]))
+            conversation = current or Conversation(channel=key[0], chat_ref=key[1])
+            scope = BufferedScope(conversation, self.load_order)
             yield scope  # an exception here discards the whole turn
             self._processed.add(message_id)
             self.conversations[key] = scope.conversation
