@@ -33,6 +33,7 @@ class OutboxEntry:
 
 
 Sender = Callable[[OutboxEntry], Awaitable[None]]
+OrderLoader = Callable[[str], Awaitable[Order | None]]
 
 
 def log_given_up(entry: OutboxEntry) -> None:
@@ -57,6 +58,14 @@ class TurnScope(Protocol):
 
     def save(self, conversation: Conversation) -> None: ...
 
+    async def load_order(self, idempotency_key: str) -> Order | None:
+        """Read an order as stored before this turn, without leaving the turn.
+
+        Inside a turn, read orders only through here: asking the repository would need a
+        second connection while this turn holds one, and enough such turns starve the pool.
+        """
+        ...
+
     def enqueue(self, entry: OutboxEntry) -> None: ...
 
     def place_order(self, order: Order) -> None: ...
@@ -67,8 +76,9 @@ class TurnScope(Protocol):
 class BufferedScope:
     """Collects a turn's writes, so a repository can commit them all at the end."""
 
-    def __init__(self, conversation: Conversation) -> None:
+    def __init__(self, conversation: Conversation, load_order: OrderLoader) -> None:
         self._conversation = conversation
+        self._load_order = load_order
         self.outbox: list[OutboxEntry] = []
         self.orders: list[Order] = []
         self.withdrawn: list[str] = []
@@ -79,6 +89,9 @@ class BufferedScope:
 
     def save(self, conversation: Conversation) -> None:
         self._conversation = conversation
+
+    async def load_order(self, idempotency_key: str) -> Order | None:
+        return await self._load_order(idempotency_key)
 
     def enqueue(self, entry: OutboxEntry) -> None:
         if any(queued.dedupe_key == entry.dedupe_key for queued in self.outbox):

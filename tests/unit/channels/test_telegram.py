@@ -27,7 +27,15 @@ from pedidos_bot.channels.telegram import (
     TelegramChannel,
     to_inbound,
 )
-from tests.telegram_fake import SENT_AT, TOKEN, FakeTelegram, make_update, refusal, until
+from tests.telegram_fake import (
+    SENT_AT,
+    TOKEN,
+    FakeTelegram,
+    make_tap,
+    make_update,
+    refusal,
+    until,
+)
 
 
 @asynccontextmanager
@@ -108,6 +116,25 @@ def test_a_caption_is_the_text_of_a_photo() -> None:
 )
 def test_updates_that_are_not_customer_messages_are_ignored(update: Any) -> None:
     assert to_inbound(update) is None
+
+
+def test_a_message_from_the_staff_chat_is_read() -> None:
+    update = make_update(1, chat_id=-100, chat_type="supergroup", text="/devolver")
+    assert to_inbound(update) is None
+    inbound = to_inbound(update, staff_chat="-100")
+    assert inbound is not None and (inbound.chat_ref, inbound.text) == ("-100", "/devolver")
+
+
+def test_a_tap_in_the_staff_chat_is_an_interactive_reply() -> None:
+    inbound = to_inbound(make_tap(9, "ok:abc:1"), staff_chat="-100")
+    assert inbound is not None
+    assert (inbound.kind, inbound.reply_payload) == (MessageKind.INTERACTIVE_REPLY, "ok:abc:1")
+    assert (inbound.external_id, inbound.chat_ref, inbound.customer_ref) == ("9", "-100", "55")
+
+
+def test_a_tap_from_anywhere_else_is_ignored() -> None:
+    assert to_inbound(make_tap(9, "ok:abc:1", chat_id=7), staff_chat="-100") is None
+    assert to_inbound(make_tap(9, "ok:abc:1")) is None
 
 
 # --- polling ------------------------------------------------------------------------------
@@ -271,6 +298,16 @@ async def test_stopping_lets_a_running_turn_finish() -> None:
     assert finished
 
 
+async def test_a_tap_is_acknowledged_even_if_it_is_ignored() -> None:
+    fake = FakeTelegram(make_tap(9, "ok:abc:1", chat_id=7))
+
+    async def on_inbound(inbound: InboundMessage) -> None:
+        raise AssertionError("not from the staff chat")
+
+    await _poll(fake, on_inbound, lambda: bool(fake.acknowledged) and not fake.updates)
+    assert fake.acknowledged == ["cb9"]
+
+
 # --- sending ------------------------------------------------------------------------------
 
 
@@ -330,3 +367,23 @@ async def test_a_failed_send_never_shows_the_token(failure: httpx.Response | Exc
     assert raised.value.retry_after is None
     # A chained httpx error would print the URL, token included, in a traceback.
     assert raised.value.__context__ is None or raised.value.__suppress_context__
+
+
+async def test_buttons_with_their_own_payload_become_inline_buttons() -> None:
+    fake = FakeTelegram()
+    buttons = (
+        QuickReply(title="✓ Aprobar", payload="ok:abc:1"),
+        QuickReply(title="✗", payload="no:abc:1"),
+    )
+    async with _channel(fake) as channel:
+        await channel.send(
+            "-100", OutboundMessage(text="Pedido", quick_replies=buttons), dedupe_key="k"
+        )
+    assert fake.sent[0]["reply_markup"] == {
+        "inline_keyboard": [
+            [
+                {"text": "✓ Aprobar", "callback_data": "ok:abc:1"},
+                {"text": "✗", "callback_data": "no:abc:1"},
+            ]
+        ]
+    }

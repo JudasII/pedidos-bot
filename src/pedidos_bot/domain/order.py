@@ -24,6 +24,8 @@ class OrderStatus(StrEnum):
     CONFIRMED = "confirmed"
     WITHDRAWN = "withdrawn"
     """The customer cancelled or changed it before staff decided: nobody must act on it."""
+    REJECTED = "rejected"
+    """Staff refused it as it was."""
 
 
 class Order(FrozenModel):
@@ -33,9 +35,19 @@ class Order(FrozenModel):
     restaurant_id: str
     source: OrderSource
     conversation_id: str | None = None
+    channel: str | None = None
+    chat_ref: str | None = None
+    """Where to reach the customer about this order, if it came from a chat."""
+    revision: int = 1
+    """Grows each time the customer changes the order and sends it again."""
     status: OrderStatus
     cart: Cart
     totals: Totals
+
+    @property
+    def code(self) -> str:
+        """Short enough to say out loud. Unique enough for one restaurant's open orders."""
+        return self.id[:4].upper()
 
 
 class IncompleteOrderError(Exception):
@@ -49,6 +61,9 @@ def create_order(
     source: OrderSource,
     idempotency_key: str,
     conversation_id: str | None = None,
+    channel: str | None = None,
+    chat_ref: str | None = None,
+    revision: int = 1,
 ) -> Order:
     missing = pending(cart, config)
     if missing:
@@ -59,6 +74,9 @@ def create_order(
         restaurant_id=config.restaurant.id,
         source=source,
         conversation_id=conversation_id,
+        channel=channel,
+        chat_ref=chat_ref,
+        revision=revision,
         status=OrderStatus.PENDING_VALIDATION if shadow else OrderStatus.CONFIRMED,
         cart=cart,
         totals=totals(cart, config),

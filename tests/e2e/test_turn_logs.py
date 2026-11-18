@@ -97,3 +97,25 @@ async def test_a_duplicate_is_logged() -> None:
     with capture_logs() as logs:
         await chat.send(message)
     assert [log["event"] for log in logs] == ["duplicate_message"]
+
+
+async def test_a_turn_logs_what_the_bot_answered() -> None:
+    chat = Chat(MINIMAL)
+    [log] = await _logs(chat, "un suizo")
+    assert log["reply"] == chat.reply.text
+    assert "Perro Suizo" in log["reply"]
+
+
+async def test_the_address_stays_out_of_the_logged_reply() -> None:
+    chat = Chat(BURGER)
+    logs = await _logs(chat, "una doble", "no", "domicilio", "donde doña Marta frente al parque")
+    logs += await _logs(chat, "nequi")  # the summary repeats the address
+    assert "Domicilio a" in chat.reply.text and "Marta" in chat.reply.text
+    assert "Domicilio a [address]" in logs[-1]["reply"]
+    assert "Marta" not in str(logs)
+
+
+async def test_a_phone_in_the_reply_is_masked_too() -> None:
+    chat = Chat(BURGER, ScriptedLLM([[AddItem(product="3001234567")]]))
+    [log] = await _logs(chat, "3001234567")
+    assert "3001234567" not in log["reply"]

@@ -13,10 +13,14 @@ Delivery guarantees, and their limits:
   out instead of using its own backoff.
 
 Messages of one chat are handled in order; different chats run at the same time, so a slow
-turn only holds up its own chat. Only private chats are customers: groups are ignored.
+turn only holds up its own chat. Private chats are customers. The one group that is read is
+the restaurant's staff chat; what comes from it carries that chat as its `chat_ref`, and
+whoever receives the messages tells the two apart by it.
 
-Customers get reply keyboards, whose buttons send their title as plain text. There are no
-callbacks, so no stale taps and no payload size limit.
+Customers get reply keyboards, whose buttons send their title as plain text: no callbacks,
+so no stale taps and no payload size limit. Buttons whose payload differs from their title
+(the staff's) become inline buttons. A tap on one arrives as an interactive reply and is
+acknowledged to Telegram at once, before its turn runs; the turn must cope with stale taps.
 """
 
 from __future__ import annotations
@@ -63,9 +67,18 @@ class BadTokenError(ChannelError):
 class TelegramChannel:
     capabilities = ChannelCapabilities(max_buttons=8, max_button_title=40)
 
-    def __init__(self, token: str, client: httpx.AsyncClient, *, retry_wait: float = 1.0) -> None:
+    def __init__(
+        self,
+        token: str,
+        client: httpx.AsyncClient,
+        *,
+        staff_chat: str | None = None,
+        retry_wait: float = 1.0,
+    ) -> None:
         self._base = f"{API_URL}/bot{token}"
         self._client = client
+        self._staff_chat = staff_chat
+        self._acknowledging: set[asyncio.Task[None]] = set()
         self._retry_wait = retry_wait
         """Seconds before retrying a failed poll or turn; it grows with each failure."""
         self._stopping = asyncio.Event()
@@ -100,8 +113,8 @@ class TelegramChannel:
                 # Telegram answers at once while updates are unconfirmed: don't spin on it.
                 self._progress.clear()
                 await self._stoppable(self._progress.wait(), patience=self._retry_wait)
-        if self._workers:
-            await asyncio.gather(*self._workers)
+        if self._workers or self._acknowledging:
+            await asyncio.gather(*self._workers, *self._acknowledging)
 
     def stop(self) -> None:
         self._stopping.set()
@@ -119,7 +132,8 @@ class TelegramChannel:
                     pending.cancel()
 
     async def _get_updates(self) -> list[dict[str, Any]]:
-        params: dict[str, Any] = {"timeout": POLL_SECONDS, "allowed_updates": ["message"]}
+        kinds = ["message", "callback_query"]
+        params: dict[str, Any] = {"timeout": POLL_SECONDS, "allowed_updates": kinds}
         offset = self._confirmed_offset()
         if offset is not None:
             params["offset"] = offset
@@ -138,8 +152,10 @@ class TelegramChannel:
     def _accept(self, update: dict[str, Any], on_inbound: InboundHandler) -> None:
         update_id = update["update_id"]
         self._last_seen = update_id
+        if "callback_query" in update:
+            self._acknowledge(update["callback_query"])
         try:
-            inbound = to_inbound(update)
+            inbound = to_inbound(update, self._staff_chat)
         except (KeyError, TypeError, ValueError) as error:
             # Skipped and confirmed: an update we can't read must not stop the polling.
             _logger.error(
@@ -156,6 +172,19 @@ class TelegramChannel:
             self._workers.add(worker)
             worker.add_done_callback(self._workers.discard)
         queue.put_nowait((update_id, inbound))
+
+    def _acknowledge(self, callback: dict[str, Any]) -> None:
+        """Stop the button's spinner now; the answer to the tap comes as a message."""
+
+        async def answer() -> None:
+            try:
+                await self._call("answerCallbackQuery", {"callback_query_id": callback.get("id")})
+            except ChannelError as error:
+                _logger.warning("telegram_acknowledge_failed", error=str(error))
+
+        task = asyncio.create_task(answer())
+        self._acknowledging.add(task)
+        task.add_done_callback(self._acknowledging.discard)
 
     async def _drain(
         self,
@@ -197,8 +226,12 @@ class TelegramChannel:
     async def send(self, chat_ref: str, message: OutboundMessage, *, dedupe_key: str) -> SendResult:
         """Send a message. `dedupe_key` can't be honored: Telegram has no idempotent send."""
         message = degrade(message, self.capabilities)
-        if message.quick_replies:
-            markup: dict[str, Any] = {
+        markup: dict[str, Any]
+        if any(reply.payload != reply.title for reply in message.quick_replies):
+            row = [{"text": r.title, "callback_data": r.payload} for r in message.quick_replies]
+            markup = {"inline_keyboard": [row]}
+        elif message.quick_replies:
+            markup = {
                 "keyboard": [[{"text": reply.title}] for reply in message.quick_replies],
                 "resize_keyboard": True,
                 "one_time_keyboard": True,
@@ -231,10 +264,18 @@ class TelegramChannel:
         raise refusal(f"{method}: http {response.status_code}", retry_after=retry_after)
 
 
-def to_inbound(update: dict[str, Any]) -> InboundMessage | None:
-    """Map an update to a customer message. None if it isn't one (a group, an edit...)."""
+def to_inbound(update: dict[str, Any], staff_chat: str | None = None) -> InboundMessage | None:
+    """Map an update to a message from a customer or from the staff chat.
+
+    None if it is neither: another group, an edit, a button tapped outside the staff chat.
+    """
+    if "callback_query" in update:
+        return _tap_to_inbound(update, staff_chat)
     message = update.get("message")
-    if not message or message["chat"].get("type") != "private":
+    if not message:
+        return None
+    from_staff = staff_chat is not None and str(message["chat"]["id"]) == staff_chat
+    if message["chat"].get("type") != "private" and not from_staff:
         return None
     fields: dict[str, Any]
     if "text" in message:
@@ -267,4 +308,21 @@ def to_inbound(update: dict[str, Any]) -> InboundMessage | None:
         sent_at=datetime.fromtimestamp(message["date"], UTC),
         raw=update,
         **fields,
+    )
+
+
+def _tap_to_inbound(update: dict[str, Any], staff_chat: str | None) -> InboundMessage | None:
+    callback = update["callback_query"]
+    chat_id = str(callback["message"]["chat"]["id"]) if callback.get("message") else None
+    if staff_chat is None or chat_id != staff_chat or "data" not in callback:
+        return None
+    return InboundMessage(
+        channel=CHANNEL,
+        external_id=str(update["update_id"]),
+        chat_ref=chat_id,
+        customer_ref=str(callback["from"]["id"]),
+        sent_at=datetime.now(UTC),  # a tap carries no time of its own
+        kind=MessageKind.INTERACTIVE_REPLY,
+        reply_payload=callback["data"],
+        raw=update,
     )

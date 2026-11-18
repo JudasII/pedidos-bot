@@ -56,7 +56,7 @@ uv run pytest -m postgres        # repository tests against it
 uv run pedidos-bot run --restaurant burger_demo   # answer customers on Telegram
 ```
 
-`run` needs `TELEGRAM_BOT_TOKEN` and `DATABASE_URL` in `.env` and the database running. One process serves one restaurant with its own bot and database (ADR-0005). Until M5 it answers with the rule-based fake LLM.
+`run` needs `TELEGRAM_BOT_TOKEN`, `DATABASE_URL` and the restaurant's staff chat id (for example `BURGER_DEMO_STAFF_CHAT_ID`) in `.env`, and the database running. The staff chat is a Telegram group with the bot in it: orders arrive there, and in shadow mode the cashier approves or rejects them with buttons. See [the M4 dev notes](docs/dev-notes/m4-telegram-restaurant.md) for a manual demo. One process serves one restaurant with its own bot and database (ADR-0005). Until M5 it answers with the rule-based fake LLM.
 
 Restaurant configs live in `config/restaurants/<id>.yaml` and are validated against [docs/config.schema.json](docs/config.schema.json) (editors with YAML language support autocomplete from it).
 
