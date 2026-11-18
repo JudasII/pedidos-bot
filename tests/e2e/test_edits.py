@@ -76,7 +76,7 @@ async def test_a_modifier_that_does_not_exist_changes_nothing() -> None:
         ]
     )
     chat = Chat(BURGER, llm)
-    for text in ("una sencilla", "no", "para recoger", "nequi", "sí"):
+    for text in ("una sencilla", "no", "Ana", "3001234567", "para recoger", "nequi", "sí"):
         await chat.say(text)
     reply = await chat.say("ponle piña")
     assert "No pude ponerle “piña”" in reply and "quedó así" not in reply
@@ -148,7 +148,7 @@ async def test_choosing_the_mode_first_still_asks_for_anything_else() -> None:
 async def test_a_clear_action_at_the_address_question_is_not_the_address() -> None:
     llm = ScriptedLLM([[AddItem(product="sencilla")], [AddItem(product="agua")]])
     chat = Chat(BURGER, llm)
-    for text in ("una sencilla", "no", "domicilio"):
+    for text in ("una sencilla", "no", "Ana", "3001234567", "domicilio"):
         await chat.say(text)
     await chat.say("ah, y un agua")
     assert chat.conversation.cart.address is None

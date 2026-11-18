@@ -74,6 +74,12 @@ def is_deny(text: str) -> bool:
     return _key(text) in _DENY
 
 
+def is_command(text: str) -> bool:
+    """A yes, a no, cancelling or asking for a person: never an answer like a name."""
+    key = _key(text)
+    return is_confirm(text) or key in _DENY | _CANCEL | _HUMAN
+
+
 def detect(message: InboundMessage, resolver: MenuResolver) -> tuple[Action, ...] | None:
     """The actions for `message` if a shortcut covers it, otherwise None."""
     if message.kind not in (MessageKind.TEXT, MessageKind.INTERACTIVE_REPLY):

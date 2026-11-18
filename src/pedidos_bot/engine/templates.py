@@ -52,6 +52,9 @@ class Msg(StrEnum):
     TEXT_ONLY = "text_only"
     STAFF_REJECTED = "staff_rejected"
     OFF_MENU = "off_menu"
+    ASK_NAME = "ask_name"
+    ASK_PHONE = "ask_phone"
+    PHONE_INVALID = "phone_invalid"
     QUESTION_UNKNOWN = "question_unknown"
     HOURS = "hours"
     HOURS_UNKNOWN = "hours_unknown"
@@ -86,6 +89,11 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.ANYTHING_ELSE: "¿Algo más?",
         Msg.ASK_MORE: "¿Qué más te anoto?",
         Msg.UPSELL: "¿Le sumamos algo de {options}?",
+        Msg.ASK_NAME: "¿A nombre de quién va el pedido?",
+        Msg.ASK_PHONE: "¿Y a qué teléfono te llamamos si hace falta?",
+        Msg.PHONE_INVALID: (
+            "Ese número no me cuadra: escríbelo con sus 10 dígitos, por ejemplo 300 123 4567."
+        ),
         Msg.ASK_FULFILLMENT: "¿Lo quieres a domicilio o pasas a recoger?",
         Msg.ASK_ADDRESS: "¿A qué dirección te lo mandamos?",
         Msg.ASK_PAYMENT: "¿Cómo vas a pagar?",
@@ -146,6 +154,12 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.ANYTHING_ELSE: "¿Desea algo más?",
         Msg.ASK_MORE: "¿Qué más desea agregar?",
         Msg.UPSELL: "¿Desea agregar algo de {options}?",
+        Msg.ASK_NAME: "¿A nombre de quién registramos el pedido?",
+        Msg.ASK_PHONE: "¿A qué teléfono le podemos contactar si es necesario?",
+        Msg.PHONE_INVALID: (
+            "No reconozco ese número. Por favor escríbalo con sus 10 dígitos, "
+            "por ejemplo 300 123 4567."
+        ),
         Msg.ASK_FULFILLMENT: "¿Lo desea a domicilio o pasa a recoger?",
         Msg.ASK_ADDRESS: "¿A qué dirección lo enviamos?",
         Msg.ASK_PAYMENT: "¿Cómo desea pagar?",

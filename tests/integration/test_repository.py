@@ -8,7 +8,15 @@ import pytest
 from structlog.testing import capture_logs
 
 from pedidos_bot.channels.base import ChannelError, InboundMessage, OutboundMessage
-from pedidos_bot.domain.cart import Cart, Fulfillment, add_item, set_fulfillment, set_payment
+from pedidos_bot.domain.cart import (
+    Cart,
+    Fulfillment,
+    add_item,
+    set_customer_name,
+    set_fulfillment,
+    set_payment,
+    set_phone,
+)
 from pedidos_bot.domain.order import Order, OrderSource, OrderStatus, create_order
 from pedidos_bot.storage import base
 from pedidos_bot.storage.base import ConversationRepository, OutboxEntry
@@ -27,6 +35,7 @@ def _entry(key: str) -> OutboxEntry:
 def _order(qty: int) -> Order:
     config = make_config()
     cart, _ = add_item(Cart(), config, "classic", qty=qty)
+    cart = set_phone(set_customer_name(cart, "Ana"), "3001234567")
     cart = set_fulfillment(cart, config, Fulfillment.PICKUP)
     cart = set_payment(cart, config, "transfer")
     return create_order(cart, config, source=OrderSource.CHAT, idempotency_key="key")

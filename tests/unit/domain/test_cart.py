@@ -4,6 +4,7 @@ from pedidos_bot.domain.cart import (
     Cart,
     Fulfillment,
     FulfillmentUnavailableError,
+    InvalidContactError,
     InvalidQuantityError,
     LineNotFoundError,
     ModifierChoice,
@@ -14,13 +15,17 @@ from pedidos_bot.domain.cart import (
     UnknownPaymentMethodError,
     UnknownProductError,
     add_item,
+    format_phone,
     missing_choices,
+    parse_phone,
     pending,
     remove_line,
     revalidate,
     set_address,
+    set_customer_name,
     set_fulfillment,
     set_payment,
+    set_phone,
     totals,
     update_line,
 )
@@ -164,10 +169,13 @@ def test_payment_validation_and_change() -> None:
 
 def test_pending_slots_in_order() -> None:
     cart = Cart()
-    assert pending(cart, CONFIG) == [Pending.ITEMS, Pending.FULFILLMENT, Pending.PAYMENT]
+    assert pending(cart, CONFIG) == [
+        Pending.ITEMS, Pending.NAME, Pending.PHONE, Pending.FULFILLMENT, Pending.PAYMENT,
+    ]  # fmt: skip
     cart, _ = add_item(cart, CONFIG, "soda")
     assert pending(cart, CONFIG)[0] is Pending.REQUIRED_CHOICES
     cart = update_line(cart, CONFIG, 1, add_modifiers=[SMALL])
+    cart = set_phone(set_customer_name(cart, "Ana"), "300 123 4567")
     cart = set_fulfillment(cart, CONFIG, Fulfillment.DELIVERY)
     assert pending(cart, CONFIG) == [Pending.ADDRESS, Pending.PAYMENT]
     cart = set_address(cart, "Calle 10 # 5-20", "apto 301")
@@ -178,7 +186,7 @@ def test_pending_slots_in_order() -> None:
 def test_pickup_never_asks_for_address() -> None:
     cart, _ = add_item(Cart(), CONFIG, "classic")
     cart = set_payment(set_fulfillment(cart, CONFIG, Fulfillment.PICKUP), CONFIG, "cash")
-    assert pending(cart, CONFIG) == []
+    assert Pending.ADDRESS not in pending(cart, CONFIG)
 
 
 def test_single_fulfillment_mode_is_implied() -> None:
@@ -187,7 +195,7 @@ def test_single_fulfillment_mode_is_implied() -> None:
     )
     cart, _ = add_item(Cart(), config, "classic")
     cart = set_payment(cart, config, "cash")
-    assert pending(cart, config) == []
+    assert Pending.FULFILLMENT not in pending(cart, config)
     assert totals(cart, config).delivery_fee == 0
 
 
@@ -250,3 +258,37 @@ def test_revalidate_forgets_options_the_restaurant_stopped_offering() -> None:
     fresh, _ = revalidate(cart, make_config(**data))
     assert fresh.fulfillment is None and fresh.payment is None
     assert fresh.address == cart.address
+
+
+@pytest.mark.parametrize(
+    ("text", "phone"),
+    [
+        ("3001234567", "3001234567"),
+        ("300 123 4567", "3001234567"),
+        ("+57 300-123-4567", "3001234567"),
+        ("(601) 234 5678", "6012345678"),
+        ("12345", None),
+        ("2001234567", None),
+        ("30012345678", None),
+    ],
+)
+def test_phones_are_read_as_ten_colombian_digits(text: str, phone: str | None) -> None:
+    assert parse_phone(text) == phone
+
+
+def test_name_and_phone_must_be_usable() -> None:
+    with pytest.raises(InvalidContactError):
+        set_customer_name(Cart(), "  ")
+    with pytest.raises(InvalidContactError):
+        set_phone(Cart(), "12345")
+    cart = set_phone(set_customer_name(Cart(), " Ana "), "300 123 4567")
+    assert (cart.customer_name, cart.phone, format_phone(cart.phone)) == (
+        "Ana", "3001234567", "300 123 4567",
+    )  # fmt: skip
+
+
+def test_revalidating_keeps_who_the_order_is_for() -> None:
+    cart, _ = add_item(Cart(), CONFIG, "classic")
+    cart = set_phone(set_customer_name(cart, "Ana"), "3001234567")
+    fresh, _ = revalidate(cart, CONFIG)
+    assert (fresh.customer_name, fresh.phone) == ("Ana", "3001234567")

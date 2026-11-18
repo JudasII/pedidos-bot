@@ -48,7 +48,13 @@ both = pytest.mark.parametrize("s", SCENARIOS, ids=lambda s: s.config.restaurant
 
 async def _to_confirmation(chat: Chat, s: Scenario) -> None:
     """Answer whatever the bot asks until it shows the summary."""
-    answers = {Step.ANYTHING_ELSE: "no", Step.FULFILLMENT: "para recoger", Step.PAYMENT: s.payment}
+    answers = {
+        Step.ANYTHING_ELSE: "no",
+        Step.NAME: "Ana",
+        Step.PHONE: "3001234567",
+        Step.FULFILLMENT: "para recoger",
+        Step.PAYMENT: s.payment,
+    }
     await chat.say(s.order)
     while chat.state is S.ORDERING:
         asked = chat.conversation.asked
@@ -75,7 +81,9 @@ async def test_full_delivery_flow_in_order() -> None:
     assert "Anotado: 1 x Hamburguesa Sencilla" in reply
     assert "¿Le sumamos algo de acompañantes, bebidas o malteadas?" in reply
     assert "¿Algo más?" in await chat.say("una coca personal")
-    assert "domicilio o pasas a recoger" in await chat.say("no")
+    assert "¿A nombre de quién" in await chat.say("no")
+    assert "teléfono" in await chat.say("Ana")
+    assert "domicilio o pasas a recoger" in await chat.say("3001234567")
     assert "dirección" in await chat.say("domicilio")
     assert "pagar" in await chat.say("calle 10 # 5-20")
     assert "vueltas" in await chat.say("efectivo")
@@ -116,16 +124,20 @@ async def test_two_burgers_one_different_and_a_drink(llm: ScriptedLLM | None) ->
     ]
 
 
-async def test_multi_field_message_reaches_the_summary_in_one_turn() -> None:
+async def test_multi_field_message_leaves_only_who_it_is_for() -> None:
     chat = Chat(BURGER)
-    reply = await chat.say("una doble, a la calle 10, pago por nequi")
+    assert "¿A nombre de quién" in await chat.say("una doble, a la calle 10, pago por nequi")
+    await chat.say("Ana")
+    reply = await chat.say("3001234567")
     assert chat.state is S.AWAITING_CONFIRMATION
     assert "Domicilio a calle 10" in reply and "Total: $30.000" in reply
 
 
 async def test_multi_field_message_in_the_pickup_only_restaurant() -> None:
     chat = Chat(MINIMAL)
-    reply = await chat.say("un suizo, pago en efectivo")
+    assert "¿A nombre de quién" in await chat.say("un suizo, pago en efectivo")
+    await chat.say("Ana")
+    reply = await chat.say("3001234567")
     assert chat.state is S.AWAITING_CONFIRMATION
     assert "Recoge en el local" in reply and "Total: $14.000" in reply
 
@@ -172,7 +184,7 @@ async def test_confirm_with_a_change_shows_the_new_summary_first() -> None:
         ]
     )
     chat = Chat(BURGER, llm)
-    for text in ("una sencilla", "no", "para recoger", "nequi"):
+    for text in ("una sencilla", "no", "Ana", "3001234567", "para recoger", "nequi"):
         await chat.say(text)
     assert chat.state is S.AWAITING_CONFIRMATION
     reply = await chat.say("sí, pero sin tomate")
@@ -250,7 +262,7 @@ async def test_shortcuts_never_reach_the_llm() -> None:
     await chat.say("una sencilla")
     assert chat.last is not None and not chat.last.resolved_without_llm
     assert chat.last.usage is not None and chat.last.usage.output_tokens > 0
-    for text in ("no", "para recoger", "nequi", "sí"):
+    for text in ("no", "Ana", "3001234567", "para recoger", "nequi", "sí"):
         await chat.say(text)  # ScriptedLLM raises if any of these calls it
         assert chat.last.resolved_without_llm
     assert chat.state is S.PENDING_STAFF_CONFIRMATION
@@ -435,9 +447,8 @@ async def test_a_change_while_staff_decide_goes_back_to_the_summary() -> None:
 
 async def test_an_unclear_answer_to_the_address_question_is_the_address() -> None:
     chat = Chat(BURGER)
-    await chat.say("una doble")
-    await chat.say("no")
-    await chat.say("domicilio")
+    for text in ("una doble", "no", "Ana", "3001234567", "domicilio"):
+        await chat.say(text)
     await chat.say("donde doña Marta frente al parque")
     cart = chat.conversation.cart
     assert cart.address is not None and cart.address.text.startswith("donde doña Marta")
@@ -514,19 +525,19 @@ async def test_yes_to_anything_else_means_there_is_more(answer: str) -> None:
     chat = Chat(BURGER)
     await chat.say("una sencilla")
     assert "¿Qué más te anoto?" in await chat.say(answer)
-    assert "domicilio" in await chat.say("no")
+    assert "¿A nombre de quién" in await chat.say("no")
 
 
 @pytest.mark.parametrize("answer", ["listo", "no", "eso es todo"])
 async def test_finishing_the_order(answer: str) -> None:
     chat = Chat(BURGER)
     await chat.say("una sencilla")
-    assert "domicilio" in await chat.say(answer)
+    assert "¿A nombre de quién" in await chat.say(answer)
 
 
 async def test_a_message_with_a_number_is_not_the_cash_amount() -> None:
     chat = Chat(BURGER)
-    for text in ("una sencilla", "no", "para recoger", "efectivo"):
+    for text in ("una sencilla", "no", "Ana", "3001234567", "para recoger", "efectivo"):
         await chat.say(text)
     await chat.say("quiero 2 cocas")
     payment = chat.conversation.cart.payment
@@ -536,7 +547,7 @@ async def test_a_message_with_a_number_is_not_the_cash_amount() -> None:
 
 async def test_a_blank_answer_to_the_address_question_is_not_an_address() -> None:
     chat = Chat(BURGER)
-    for text in ("una doble", "no", "domicilio"):
+    for text in ("una doble", "no", "Ana", "3001234567", "domicilio"):
         await chat.say(text)
     assert "dirección" in await chat.say("   ")
     assert chat.conversation.cart.address is None
@@ -559,7 +570,7 @@ async def test_a_digit_that_is_not_a_number_does_not_crash() -> None:
 async def test_a_rejected_change_does_not_pull_the_order_back_from_staff() -> None:
     llm = ScriptedLLM([[AddItem(product="sencilla")], [AddItem(product="sushi")]])
     chat = Chat(BURGER, llm)
-    for text in ("una sencilla", "no", "para recoger", "nequi", "sí"):
+    for text in ("una sencilla", "no", "Ana", "3001234567", "para recoger", "nequi", "sí"):
         await chat.say(text)
     assert "sushi" in await chat.say("un sushi")
     assert chat.state is S.PENDING_STAFF_CONFIRMATION
@@ -592,7 +603,7 @@ async def test_the_conversation_survives_serialization(s: Scenario) -> None:
 
 async def _pickup_chosen() -> Chat:
     chat = Chat(BURGER)
-    for text in ("una doble", "no", "para recoger"):
+    for text in ("una doble", "no", "Ana", "3001234567", "para recoger"):
         await chat.say(text)
     return chat
 

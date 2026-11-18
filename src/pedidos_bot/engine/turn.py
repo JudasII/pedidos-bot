@@ -41,7 +41,7 @@ from pedidos_bot.engine.lifecycle import Event, LifecycleState
 from pedidos_bot.engine.policy import NextStep, Step, next_step
 from pedidos_bot.engine.resolver import Match, MatchStatus, MenuResolver
 from pedidos_bot.engine.responder import Responder, join_options
-from pedidos_bot.engine.shortcuts import is_confirm, is_deny, is_done_adding
+from pedidos_bot.engine.shortcuts import is_command, is_confirm, is_deny, is_done_adding
 from pedidos_bot.engine.templates import Msg
 
 MAX_MISUNDERSTOOD = 2
@@ -51,6 +51,18 @@ _SLOT_ACTIONS = (SetFulfillment, SetAddress, SetPayment)
 _OPEN_QUESTIONS = (Step.ITEMS, Step.ANYTHING_ELSE)
 """Questions that only ask what the customer wants: an invitation to order can replace them."""
 _AMOUNT = re.compile(r"(?:(?:pago )?con |un billete de |de )?\$?\s*(\d[\d.,]*)\s*(mil|k)?")
+_NAME_PREFIX = re.compile(
+    r"^(?:(?:es\s+)?a\s+nombre\s+de|(?:mi\s+nombre\s+es)|me\s+llamo|soy|para|es)\s+",
+    re.IGNORECASE,
+)
+_MAX_NAME_WORDS = 5
+_NOT_A_NAME = re.compile(
+    r"^(?:y\s+)?(?:un|una|uno|unos|unas|otro|otra|otros|otras|\d+|dos|tres|cuatro|quiero|quisiera"
+    r"|dame|me\s+das|regalame|regálame|me\s+regalas|agrega|agregale|agrégale|quita|quitale"
+    r"|quítale|cambia|mejor|sin|con)\b",
+    re.IGNORECASE,
+)
+"""How an order starts, not a name: "y una pizza", "quítale la cebolla"."""
 _EXACT_CASH = re.compile(r"\b(exacto|exacta|justo|completo|sencillo)\b")
 
 
@@ -137,6 +149,36 @@ class Turn:
             return self._answer_required_choice(text)
         if self.conversation.asked is Step.CASH_CHANGE:
             return self._answer_cash_change(text)
+        if self.conversation.asked is Step.NAME:
+            return self._answer_name(text)
+        if self.conversation.asked is Step.PHONE:
+            return self._answer_phone(text)
+        return False
+
+    def _answer_name(self, text: str) -> bool:
+        """The whole answer is the name, unless it is clearly something else."""
+        name = _NAME_PREFIX.sub("", text.strip()).strip(" .,;!¡")
+        looks_like_a_name = (
+            name
+            and "?" not in text
+            and not _NOT_A_NAME.match(text.strip())
+            and not any(char.isdigit() for char in name)
+            and len(name.split()) <= _MAX_NAME_WORDS
+            and not is_command(text)
+            and self._resolver.resolve_item(name).product.status is MatchStatus.NOT_FOUND
+        )
+        if not looks_like_a_name:
+            return False  # an item, a cancel, a question: the rest of the pipeline reads it
+        self._set_cart(carts.set_customer_name(self._cart, name))
+        return True
+
+    def _answer_phone(self, text: str) -> bool:
+        if carts.parse_phone(text) is not None:
+            self._set_cart(carts.set_phone(self._cart, text))
+            return True
+        if any(char.isdigit() for char in text):
+            self._note(Msg.PHONE_INVALID)
+            return True
         return False
 
     def _pop_clarification(self) -> None:
@@ -640,6 +682,10 @@ class Turn:
             case Step.FULFILLMENT:
                 options = [responder.text(Msg.OPTION_DELIVERY), responder.text(Msg.OPTION_PICKUP)]
                 return responder.text(Msg.ASK_FULFILLMENT), responder.replies(options)
+            case Step.NAME:
+                return responder.text(Msg.ASK_NAME), ()
+            case Step.PHONE:
+                return responder.text(Msg.ASK_PHONE), ()
             case Step.ADDRESS:
                 return responder.text(Msg.ASK_ADDRESS), ()
             case Step.PAYMENT:

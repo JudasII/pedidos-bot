@@ -49,7 +49,7 @@ async def test_a_button_yes_also_handles_the_waiting_message() -> None:
 
 async def test_coming_back_with_a_yes_shows_the_summary_again_first() -> None:
     chat = await _chat_with_a_burger()
-    for text in ("no", "para recoger", "nequi"):
+    for text in ("no", "Ana", "3001234567", "para recoger", "nequi"):
         await chat.say(text)
     chat.wait(hours=3)
     await chat.say("sí")
@@ -190,7 +190,7 @@ async def test_an_empty_conversation_is_not_asked_about() -> None:
 
 async def test_an_order_with_the_staff_is_not_asked_about() -> None:
     chat = Chat(BURGER)
-    for text in ("una sencilla", "no", "para recoger", "nequi", "sí"):
+    for text in ("una sencilla", "no", "Ana", "3001234567", "para recoger", "nequi", "sí"):
         await chat.say(text)
     chat.wait(hours=30)
     assert "confirmación" in await chat.say("hola?")

@@ -21,11 +21,12 @@ pytestmark = pytest.mark.postgres
 async def test_the_order_continues_after_a_restart(database_url: str) -> None:
     async with PostgresRepository.open(database_url) as repository:
         chat = Chat(CONFIG, repository=repository)
-        await chat.say("una sencilla sin cebolla")
-        await chat.say("no")
+        for text in ("una sencilla sin cebolla", "no", "Ana"):
+            await chat.say(text)
 
     async with PostgresRepository.open(database_url) as repository:
         chat = Chat(CONFIG, repository=repository, first_message_id=100)
+        await chat.say("3001234567")  # the name was asked before the restart
         await chat.say("para recoger")
         reply = await chat.say("nequi")
         assert "(sin cebolla)" in reply
@@ -51,7 +52,7 @@ async def test_replies_still_go_out_if_the_process_died_before_sending(database_
 async def test_staff_decide_on_an_order_stored_in_postgres(database_url: str) -> None:
     async with PostgresRepository.open(database_url) as repository:
         chat = Chat(CONFIG, repository=repository)
-        for text in ("una sencilla", "no", "para recoger", "nequi", "sí"):
+        for text in ("una sencilla", "no", "Ana", "3001234567", "para recoger", "nequi", "sí"):
             await chat.say(text)
         assert chat.state is LifecycleState.PENDING_STAFF_CONFIRMATION
         key = chat.conversation.id
@@ -77,7 +78,7 @@ async def test_a_turn_needs_only_one_connection(database_url: str) -> None:
     async with PostgresRepository.open(database_url, max_connections=1) as repository:
         chat = Chat(CONFIG, repository=repository)
         async with asyncio.timeout(10):
-            for text in ("una sencilla", "no", "para recoger", "nequi", "sí"):
+            for text in ("una sencilla", "no", "Ana", "3001234567", "para recoger", "nequi", "sí"):
                 await chat.say(text)
             await chat.say("agrega una doble")  # withdraws the order: reads it to tell staff
             await chat.say("sí")  # sends it again: reads it to keep its id
@@ -93,7 +94,7 @@ async def test_two_turns_at_once_fit_in_a_pool_of_two(database_url: str) -> None
             for name, first in (("ana", 1), ("luis", 1000))
         ]
         for chat in chats:
-            for text in ("una sencilla", "no", "para recoger", "nequi", "sí"):
+            for text in ("una sencilla", "no", "Ana", "3001234567", "para recoger", "nequi", "sí"):
                 await chat.say(text)
         async with asyncio.timeout(10):
             await asyncio.gather(*(chat.say("cancelar") for chat in chats))
