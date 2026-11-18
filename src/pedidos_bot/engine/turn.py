@@ -48,6 +48,8 @@ MAX_MISUNDERSTOOD = 2
 """Consecutive turns without understanding before a person takes over."""
 
 _SLOT_ACTIONS = (SetFulfillment, SetAddress, SetPayment)
+_OPEN_QUESTIONS = (Step.ITEMS, Step.ANYTHING_ELSE)
+"""Questions that only ask what the customer wants: an invitation to order can replace them."""
 _AMOUNT = re.compile(r"(?:(?:pago )?con |un billete de |de )?\$?\s*(\d[\d.,]*)\s*(mil|k)?")
 _EXACT_CASH = re.compile(r"\b(exacto|exacta|justo|completo|sencillo)\b")
 
@@ -87,6 +89,8 @@ class Turn:
         self._understood = False
         self._cart_changed = False
         self._asking_for_more = False
+        self._suggested = False
+        """The restaurant's off-menu phrase was said; it already invites the next order."""
         self._asked_before: tuple[Clarification, ...] = conversation.clarifications
         """Questions owed when the turn began: the customer may answer one by restating."""
 
@@ -294,7 +298,18 @@ class Turn:
             )
             self._queue(clarification)
         else:
-            self._note(Msg.PRODUCT_NOT_FOUND, text=action.product)
+            self._off_menu(action.product)
+
+    def _off_menu(self, item: str) -> None:
+        """Something the restaurant doesn't sell: say so in its words, never "I didn't get it"."""
+        phrase = self._config.tone.off_menu
+        if phrase is None:
+            self._note(Msg.OFF_MENU, item=item)
+            return
+        self._notes.append(phrase.format(item=item))
+        self.notices.append(Msg.OFF_MENU.value)
+        self._understood = True
+        self._suggested = True
 
     def _settle_question_for(self, product_id: str, quantity: int) -> None:
         """Ordering one of the options of an earlier "which one?" answers it: drop the question.
@@ -514,6 +529,10 @@ class Turn:
                 self._event(Event.CUSTOMER_CONFIRMED)
                 eta = self._responder.eta(self._cart)
                 self._final = self._responder.text(Msg.CONFIRMED, eta=eta)
+        elif self.conversation.asked is Step.ITEMS and confirmed:
+            # "Yes" to "what would you like?" (or to an invitation to order): show what there is.
+            self._understood = True
+            self._notes.append(self._responder.menu())
         elif self.conversation.asked is Step.ANYTHING_ELSE:
             self._understood = True
             if confirmed:
@@ -567,6 +586,8 @@ class Turn:
             )
         question, replies = self._next_question()
         self._update(greeted=True, options=tuple(reply.payload for reply in replies))
+        if self._suggested and self.conversation.asked in _OPEN_QUESTIONS:
+            return OutboundMessage(text="\n\n".join(self._notes))  # it ends in its own question
         return OutboundMessage(text="\n\n".join([*self._notes, question]), quick_replies=replies)
 
     def _next_question(self) -> tuple[str, tuple[QuickReply, ...]]:

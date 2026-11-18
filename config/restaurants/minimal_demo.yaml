@@ -21,6 +21,7 @@ tone:
   style: formal
   emoji: none
   greeting: "Buenas tardes, bienvenido a Perros Demo. ¿Qué desea ordenar?"
+  off_menu: "Lo sentimos, no ofrecemos {item}. Le recomendamos nuestros perros calientes, ¿desea uno?"
 
 modifier_groups:
   - id: salsas

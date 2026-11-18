@@ -316,7 +316,7 @@ async def test_required_choice_is_asked_and_answered() -> None:
 
 async def test_unknown_product_is_reported_not_added() -> None:
     chat = Chat(BURGER, ScriptedLLM([[AddItem(product="sushi")]]))
-    assert "No encontré “sushi” en el menú" in await chat.say("un sushi")
+    assert "no vendemos sushi" in await chat.say("un sushi")
     assert chat.lines == []
 
 

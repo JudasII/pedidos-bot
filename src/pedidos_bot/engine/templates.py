@@ -51,6 +51,7 @@ class Msg(StrEnum):
     OFFER_PERSON = "offer_person"
     TEXT_ONLY = "text_only"
     STAFF_REJECTED = "staff_rejected"
+    OFF_MENU = "off_menu"
     QUESTION_UNKNOWN = "question_unknown"
     HOURS = "hours"
     HOURS_UNKNOWN = "hours_unknown"
@@ -68,6 +69,7 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.REMOVED: "Listo, quité {item}.",
         Msg.UPDATED: "Listo, quedó así: {item}.",
         Msg.PRODUCT_NOT_FOUND: "No encontré “{text}” en el menú.",
+        Msg.OFF_MENU: "Uy, no vendemos {item}.",
         Msg.PRODUCT_CHOICE: "¿Cuál quieres: {options}?",
         Msg.PRODUCT_YES_NO: "¿Te refieres a {product}?",
         Msg.MODIFIER_CHOICE: "Para {product}, ¿cuál quieres: {options}?",
@@ -127,6 +129,7 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.REMOVED: "Con gusto, retiré {item}.",
         Msg.UPDATED: "Con gusto, quedó así: {item}.",
         Msg.PRODUCT_NOT_FOUND: "No encontré “{text}” en el menú.",
+        Msg.OFF_MENU: "Lo sentimos, no ofrecemos {item}.",
         Msg.PRODUCT_CHOICE: "¿Cuál desea: {options}?",
         Msg.PRODUCT_YES_NO: "¿Se refiere a {product}?",
         Msg.MODIFIER_CHOICE: "Para {product}, ¿cuál desea: {options}?",

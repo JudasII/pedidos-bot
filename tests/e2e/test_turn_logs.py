@@ -50,7 +50,7 @@ async def test_confirming_logs_the_order_and_the_new_state() -> None:
 async def test_rejected_requests_are_logged() -> None:
     chat = Chat(BURGER, ScriptedLLM([[AddItem(product="sushi")]]))
     [log] = await _logs(chat, "un sushi")
-    assert log["notices"] == ("product_not_found",)
+    assert log["notices"] == ("off_menu",)
 
 
 async def test_customer_data_stays_out_of_the_logs() -> None:

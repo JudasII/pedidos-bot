@@ -43,6 +43,7 @@ tone:
   style: informal
   emoji: light
   greeting: "¡Hola! Bienvenido a Burger Demo 🍔 ¿Qué te provoca hoy?"
+  off_menu: "Uy, no vendemos {item} 😅, pero nuestras hamburguesas son geniales. ¿Te provoca una?"
 
 modifier_groups:
   - id: quitar
