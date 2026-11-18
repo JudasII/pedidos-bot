@@ -42,6 +42,16 @@ The flow worked end to end on Telegram: order, summary, the cashier's ✓ from t
 
 Still open: "no, así está bien" is not a known phrase for finishing (#43, #44), and "hamburguesa con papas" is one item to the rule-based fake LLM. The real model (M5) should read it as two.
 
+## Handoff relay (#20)
+
+Found in the first run: "asesor" put the chat in handoff, nobody at the restaurant was told, and there was no way out. Every later message got no answer.
+
+- **Asking for a person** (or a voice note, photo, location, two misunderstandings) tells the staff chat: "🙋 Cliente #AB12 pide hablar con una persona", what they wrote, the order in progress and how to answer.
+- **What the customer writes** during the handoff reaches the staff chat as "💬 #AB12: …". Media can't be forwarded yet: a voice note shows as "[nota de voz]", a photo as "[foto]", a location as a map link.
+- **The cashier answers** with Telegram's "Reply" on any of those messages (they all carry `#AB12`), or with `/responder AB12 text`. Privacy mode delivers both: replies to the bot's messages and commands.
+- **`/devolver AB12`**, or `/devolver` as a reply, gives the customer back to the bot, which goes on with the order where it was.
+- **Nobody answers**: after `session.handoff_timeout_minutes` without a message from staff, the bot takes over, says so to the customer and to the staff chat. A check runs every minute, and the customer's next message ends an expired handoff too. A chat left in handoff by an older version (no handoff details) ends at its next message.
+
 ## Logs
 
 `run` keeps its log in `data/private/logs/<restaurant>.log` (git-ignored), one readable line per event, appended across restarts. The terminal still shows the same events as JSON. Each `turn` line has the customer's message and the bot's reply, both masked (phones, street addresses, and the address the customer gave, which the summary repeats), plus the state before and after, the actions understood and the notices sent.

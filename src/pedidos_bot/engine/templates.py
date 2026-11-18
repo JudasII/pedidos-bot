@@ -55,6 +55,8 @@ class Msg(StrEnum):
     ASK_NAME = "ask_name"
     ASK_PHONE = "ask_phone"
     PHONE_INVALID = "phone_invalid"
+    HANDOFF_TIMEOUT = "handoff_timeout"
+    BOT_BACK = "bot_back"
     QUESTION_UNKNOWN = "question_unknown"
     HOURS = "hours"
     HOURS_UNKNOWN = "hours_unknown"
@@ -109,6 +111,8 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.ALREADY_CONFIRMED: "Tu pedido ya está confirmado.",
         Msg.CANCELLED: "Listo, cancelé tu pedido. Aquí estamos cuando quieras.",
         Msg.HANDOFF: "Ya te paso con alguien del equipo, dame un momento.",
+        Msg.HANDOFF_TIMEOUT: "No pudimos atenderte a tiempo, perdón. Sigo yo con tu pedido.",
+        Msg.BOT_BACK: "Listo, sigo yo con tu pedido.",
         Msg.RESUME_PROMPT: "¿Seguimos con tu pedido de {items}?",
         Msg.RECOVER_PROMPT: "Tenías un pedido sin terminar: {items}. ¿Lo retomamos?",
         Msg.NO_LONGER_AVAILABLE: "Ya no tenemos {items}.",
@@ -175,6 +179,10 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.ALREADY_CONFIRMED: "Su pedido ya está confirmado.",
         Msg.CANCELLED: "Su pedido fue cancelado. Quedamos atentos.",
         Msg.HANDOFF: "Le comunico con alguien del equipo, un momento por favor.",
+        Msg.HANDOFF_TIMEOUT: (
+            "Lamentamos no haberle atendido a tiempo. Continúo yo con su pedido."
+        ),
+        Msg.BOT_BACK: "Con gusto, continúo yo con su pedido.",
         Msg.RESUME_PROMPT: "¿Continuamos con su pedido de {items}?",
         Msg.RECOVER_PROMPT: "Tenía un pedido sin terminar: {items}. ¿Desea retomarlo?",
         Msg.NO_LONGER_AVAILABLE: "Ya no contamos con {items}.",

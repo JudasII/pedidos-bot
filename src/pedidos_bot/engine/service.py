@@ -5,7 +5,7 @@ from __future__ import annotations
 import secrets
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from enum import StrEnum
 from time import perf_counter
 
@@ -16,19 +16,28 @@ from pedidos_bot.config.schema import RestaurantConfig
 from pedidos_bot.domain.cart import CartLine, revalidate
 from pedidos_bot.domain.order import Order, OrderStatus
 from pedidos_bot.engine.actions import Action, SetAddress, Unknown
-from pedidos_bot.engine.conversation import Conversation, ResumeOffer
-from pedidos_bot.engine.lifecycle import Event, LifecycleState
+from pedidos_bot.engine.conversation import Conversation, Handoff, ResumeOffer
+from pedidos_bot.engine.lifecycle import Event, Lifecycle, LifecycleState
 from pedidos_bot.engine.nlu import Nlu
 from pedidos_bot.engine.policy import Step
 from pedidos_bot.engine.resolver import MenuResolver
 from pedidos_bot.engine.responder import Responder, join_options
 from pedidos_bot.engine.shortcuts import detect, is_confirm, is_deny
 from pedidos_bot.engine.staff import (
+    StaffAction,
     StaffDecision,
+    StaffReply,
+    StaffReturn,
     Verdict,
     decision_notice,
+    handoff_notice,
+    not_in_handoff_notice,
     order_notification,
+    relay_notice,
+    returned_notice,
     stale_notice,
+    timeout_notice,
+    what_they_sent,
     withdrawn_notice,
 )
 from pedidos_bot.engine.templates import Msg
@@ -60,6 +69,8 @@ class TurnResult:
     duplicate: bool = False
     actions: tuple[str, ...] = ()
     notices: tuple[str, ...] = ()
+    staff: tuple[OutboundMessage, ...] = ()
+    """Messages for the staff chat, besides the order notifications."""
 
 
 class ConversationService:
@@ -94,10 +105,12 @@ class ConversationService:
                     return TurnResult(duplicate=True)
                 before = scope.conversation
                 log = log.bind(conversation_id=before.id, state_before=before.lifecycle.state.value)
-                result = await self._process(before, inbound)
+                result = self._starting_handoff(await self._process(before, inbound), inbound)
                 assert result.conversation is not None
                 scope.save(result.conversation)
                 key = f"{inbound.channel}:{inbound.external_id}"
+                for number, message in enumerate(result.staff):
+                    self._tell_staff(scope, message, f"{key}:note{number}")
                 if result.reply is not None:
                     scope.enqueue(OutboxEntry(inbound.chat_ref, result.reply, key))
                 if result.order is not None:
@@ -133,7 +146,132 @@ class ConversationService:
         if self._staff_chat is not None:
             scope.enqueue(OutboxEntry(self._staff_chat, message, f"{key}:staff"))
 
-    async def handle_staff(self, decision: StaffDecision) -> bool:
+    # --- handoff ------------------------------------------------------------------------
+
+    def _starting_handoff(self, result: TurnResult, inbound: InboundMessage) -> TurnResult:
+        """A turn that hands the customer to a person records it and tells the staff chat."""
+        conversation = result.conversation
+        assert conversation is not None
+        if conversation.lifecycle.state is not LifecycleState.HANDOFF or conversation.handoff:
+            return result
+        handoff = Handoff(code=conversation.code, since=inbound.sent_at)
+        items = [self._responder.line(line) for line in conversation.cart.lines]
+        notice = handoff_notice(handoff.code, what_they_sent(inbound), items)
+        return replace(
+            result,
+            conversation=conversation.model_copy(update={"handoff": handoff}),
+            staff=(*result.staff, notice),
+        )
+
+    def _handoff_expired(self, conversation: Conversation, now: datetime) -> bool:
+        """Nobody from the restaurant wrote for the configured time. A handoff saved without
+        its details (before the relay existed) has nobody on it: it is over."""
+        handoff = conversation.handoff
+        if handoff is None:
+            return True
+        timeout = timedelta(minutes=self._config.session.handoff_timeout_minutes)
+        return now - handoff.quiet_since >= timeout
+
+    @staticmethod
+    def _end_handoff(conversation: Conversation) -> Conversation:
+        lifecycle = conversation.lifecycle
+        back = lifecycle.apply(Event.HANDOFF_ENDED) if lifecycle.before_handoff else Lifecycle()
+        return conversation.model_copy(update={"lifecycle": back, "handoff": None})
+
+    def _back_to_the_bot(self, conversation: Conversation, note: Msg) -> TurnResult:
+        """End the handoff and go on with the order, saying why first."""
+        result = self._continue(self._end_handoff(conversation))
+        return _with_note(result, self._responder.text(note))
+
+    async def _in_handoff(self, conversation: Conversation, inbound: InboundMessage) -> TurnResult:
+        if not self._handoff_expired(conversation, inbound.sent_at):
+            return TurnResult(conversation, staff=(relay_notice(conversation.code, inbound),))
+        result = await self._respond(self._end_handoff(conversation), inbound)
+        if result.reply is not None:
+            result = _with_note(result, self._responder.text(Msg.HANDOFF_TIMEOUT))
+        minutes = self._config.session.handoff_timeout_minutes
+        return replace(result, staff=(timeout_notice(conversation.code, minutes), *result.staff))
+
+    async def expire_handoffs(self, now: datetime) -> int:
+        """Give back to the bot every handoff nobody answered in time. Returns how many."""
+        expired = 0
+        for waiting in await self._repository.in_handoff():
+            if not self._handoff_expired(waiting, now):
+                continue
+            quiet = waiting.handoff.quiet_since.isoformat() if waiting.handoff else "unknown"
+            tick = InboundMessage(
+                channel=waiting.channel,
+                external_id=f"handoff-timeout:{waiting.id}:{quiet}",
+                chat_ref=waiting.chat_ref,
+                customer_ref=waiting.chat_ref,
+                sent_at=now,
+            )
+            key = f"{tick.channel}:{tick.external_id}"
+            async with self._repository.turn(tick) as scope:
+                if scope is None:
+                    continue
+                current = scope.conversation
+                if current.lifecycle.state is not LifecycleState.HANDOFF:
+                    continue
+                if not self._handoff_expired(current, now):
+                    continue
+                result = self._back_to_the_bot(current, Msg.HANDOFF_TIMEOUT)
+                assert result.conversation is not None and result.reply is not None
+                scope.save(result.conversation)
+                scope.enqueue(OutboxEntry(current.chat_ref, result.reply, key))
+                minutes = self._config.session.handoff_timeout_minutes
+                self._tell_staff(scope, timeout_notice(current.code, minutes), key)
+                expired += 1
+            _logger.info("handoff_expired", conversation_id=waiting.id)
+        return expired
+
+    async def handle_staff(self, action: StaffAction) -> bool:
+        """Apply what someone did in the staff chat. False if it changed nothing."""
+        if isinstance(action, StaffDecision):
+            return await self._decide(action)
+        return await self._from_staff(action)
+
+    async def _from_staff(self, action: StaffReply | StaffReturn) -> bool:
+        """A message for a customer in a handoff, or giving them back to the bot."""
+        log = _logger.bind(turn_id=f"staff:{action.external_id}", code=action.code)
+        conversation = await self._repository.load_by_code(action.code)
+        if conversation is None:
+            log.warning("staff_message_without_conversation")
+            return False
+        # The customer's conversation is locked through a message that stands for the action.
+        stand_in = InboundMessage(
+            channel=conversation.channel,
+            external_id=action.external_id,
+            chat_ref=conversation.chat_ref,
+            customer_ref=conversation.chat_ref,
+            sent_at=action.at,
+        )
+        key = f"{conversation.channel}:{action.external_id}"
+        async with self._repository.turn(stand_in) as scope:
+            if scope is None:
+                log.info("duplicate_message")
+                return False
+            current = scope.conversation
+            handoff = current.handoff
+            if current.lifecycle.state is not LifecycleState.HANDOFF or handoff is None:
+                self._tell_staff(scope, not_in_handoff_notice(action.code), key)
+                log.info("staff_message", applied=False)
+                return False
+            if isinstance(action, StaffReply):
+                awake = handoff.model_copy(update={"last_staff_at": action.at})
+                scope.save(current.model_copy(update={"handoff": awake}))
+                message = OutboundMessage(text=action.text)
+                scope.enqueue(OutboxEntry(current.chat_ref, message, key))
+            else:
+                result = self._back_to_the_bot(current, Msg.BOT_BACK)
+                assert result.conversation is not None and result.reply is not None
+                scope.save(result.conversation)
+                scope.enqueue(OutboxEntry(current.chat_ref, result.reply, key))
+                self._tell_staff(scope, returned_notice(action.code), key)
+        log.info("staff_message", applied=True, returned=isinstance(action, StaffReturn))
+        return True
+
+    async def _decide(self, decision: StaffDecision) -> bool:
         """Apply a staff decision to its order. False if it changed nothing.
 
         The decision counts only for the revision staff saw: if the customer changed or
@@ -200,8 +338,9 @@ class ConversationService:
         return replace(result, conversation=stamped)
 
     async def _respond(self, conversation: Conversation, inbound: InboundMessage) -> TurnResult:
-        in_handoff = conversation.lifecycle.state is LifecycleState.HANDOFF
-        if inbound.kind is MessageKind.STICKER and not in_handoff:
+        if conversation.lifecycle.state is LifecycleState.HANDOFF:
+            return await self._in_handoff(conversation, inbound)
+        if inbound.kind is MessageKind.STICKER:
             # A sticker asks for nothing: say what we can read and leave the order as it is.
             return TurnResult(
                 conversation, OutboundMessage(text=self._responder.text(Msg.TEXT_ONLY))

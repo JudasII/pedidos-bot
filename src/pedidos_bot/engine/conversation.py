@@ -65,6 +65,20 @@ class ResumeOffer(FrozenModel):
     """What the customer said on returning, handled if they choose to go on."""
 
 
+class Handoff(FrozenModel):
+    """A person from the restaurant is answering this customer through the bot."""
+
+    code: str
+    """How staff name the customer: `#` plus it, in every message about them."""
+    since: datetime
+    last_staff_at: datetime | None = None
+
+    @property
+    def quiet_since(self) -> datetime:
+        """When staff last showed signs of life: the timeout counts from here."""
+        return self.last_staff_at or self.since
+
+
 class Conversation(FrozenModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     """Identifies this order session; a chat gets a new one for each order."""
@@ -75,6 +89,7 @@ class Conversation(FrozenModel):
     """The menu this cart was priced with."""
     resume_offer: ResumeOffer | None = None
     lifecycle: Lifecycle = Lifecycle()
+    handoff: Handoff | None = None
     cart: Cart = Cart()
     follows_confirmed: bool = False
     """The previous order of this chat was confirmed, so "cancel" may be about that one."""
@@ -94,3 +109,8 @@ class Conversation(FrozenModel):
     asked_choice: MissingChoice | None = None
     options: tuple[str, ...] = ()
     """Payloads of the last options offered, so a numbered answer can be mapped back."""
+
+    @property
+    def code(self) -> str:
+        """Short enough for staff to type. Unique enough among one restaurant's open chats."""
+        return self.id[:4].upper()

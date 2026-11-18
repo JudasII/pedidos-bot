@@ -27,6 +27,8 @@ from pedidos_bot.storage.memory import InMemoryRepository
 from pedidos_bot.storage.postgres import PostgresRepository
 
 OUTBOX_INTERVAL = 2.0
+HANDOFF_CHECK_INTERVAL = 60.0
+"""Seconds between checks for handoffs nobody answered."""
 LOG_DIR = Path("data/private/logs")
 """Where `run` keeps each restaurant's log, one file per restaurant. Git-ignored."""
 """Seconds between checks for messages whose retry is due."""
@@ -82,6 +84,22 @@ async def deliver_forever(
         await asyncio.sleep(interval)
 
 
+async def expire_forever(
+    service: ConversationService,
+    repository: ConversationRepository,
+    channel: Channel,
+    interval: float = HANDOFF_CHECK_INTERVAL,
+) -> None:
+    """Give back to the bot, again and again, the handoffs nobody answered in time."""
+    while True:
+        try:
+            if await service.expire_handoffs(datetime.now(UTC)):
+                await deliver_pending(repository, channel)
+        except Exception as error:
+            _logger.error("handoff_check_failed", error=type(error).__name__)
+        await asyncio.sleep(interval)
+
+
 async def serve(
     config: RestaurantConfig,
     repository: ConversationRepository,
@@ -91,13 +109,18 @@ async def serve(
 ) -> None:
     """Answer customers and staff until the channel stops."""
     service = build_service(config, repository, pii_salt, staff_chat)
-    outbox = asyncio.create_task(deliver_forever(repository, channel))
+    loops = [
+        asyncio.create_task(deliver_forever(repository, channel)),
+        asyncio.create_task(expire_forever(service, repository, channel)),
+    ]
     try:
         await channel.start(reply_through(service, repository, channel, staff_chat))
     finally:
-        outbox.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await outbox
+        for loop in loops:
+            loop.cancel()
+        for loop in loops:
+            with contextlib.suppress(asyncio.CancelledError):
+                await loop
 
 
 async def run_telegram(config: RestaurantConfig, settings: Settings, staff_chat: str) -> None:

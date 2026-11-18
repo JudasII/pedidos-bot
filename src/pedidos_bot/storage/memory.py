@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pedidos_bot.channels.base import InboundMessage
 from pedidos_bot.domain.order import Order, OrderStatus
 from pedidos_bot.engine.conversation import Conversation
+from pedidos_bot.engine.lifecycle import LifecycleState
 from pedidos_bot.storage.base import (
     MAX_SEND_ATTEMPTS,
     BufferedScope,
@@ -67,6 +68,13 @@ class InMemoryRepository:
 
     async def load_order(self, idempotency_key: str) -> Order | None:
         return self._orders.get(idempotency_key)
+
+    async def load_by_code(self, code: str) -> Conversation | None:
+        return next((c for c in self.conversations.values() if c.code == code), None)
+
+    async def in_handoff(self) -> list[Conversation]:
+        handoff = LifecycleState.HANDOFF
+        return [c for c in self.conversations.values() if c.lifecycle.state is handoff]
 
     async def pending_outbound(self) -> list[OutboxEntry]:
         return [item.entry for item in self._outbox]
