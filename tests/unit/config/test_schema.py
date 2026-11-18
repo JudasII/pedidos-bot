@@ -127,3 +127,12 @@ def test_unknown_timezone_is_rejected() -> None:
     data = config_dict()
     data["restaurant"]["timezone"] = "America/Nowhere"
     assert "unknown timezone" in _errors(data)
+
+
+def test_the_off_menu_phrase_may_only_mention_the_item() -> None:
+    with pytest.raises(ValidationError, match="off_menu"):
+        make_config(tone={"greeting": "Hola", "off_menu": "No vendemos {producto}."})
+    with pytest.raises(ValidationError, match="off_menu"):
+        make_config(tone={"greeting": "Hola", "off_menu": "No vendemos eso {"})
+    tone = make_config(tone={"greeting": "Hola", "off_menu": "No vendemos {item}."}).tone
+    assert tone.off_menu == "No vendemos {item}."

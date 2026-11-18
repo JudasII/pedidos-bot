@@ -7,6 +7,7 @@ always taken from the configuration; the LLM never supplies them.
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Iterable
 from enum import StrEnum
@@ -68,6 +69,10 @@ class Cart(FrozenModel):
     fulfillment: Fulfillment | None = None
     address: Address | None = None
     payment: Payment | None = None
+    customer_name: str | None = None
+    """Who the order is for: the name the restaurant calls out or the courier asks for."""
+    phone: str | None = None
+    """Ten digits, without the country code."""
 
     @property
     def is_empty(self) -> bool:
@@ -88,6 +93,8 @@ class Pending(StrEnum):
 
     ITEMS = "items"
     REQUIRED_CHOICES = "required_choices"
+    NAME = "name"
+    PHONE = "phone"
     FULFILLMENT = "fulfillment"
     ADDRESS = "address"
     PAYMENT = "payment"
@@ -132,6 +139,10 @@ class LineNotFoundError(CartError):
 
 class FulfillmentUnavailableError(CartError):
     code = "fulfillment_unavailable"
+
+
+class InvalidContactError(CartError):
+    """A name or phone that can't be used to reach the customer."""
 
 
 class UnknownPaymentMethodError(CartError):
@@ -234,6 +245,35 @@ def set_address(cart: Cart, text: str, details: str = "") -> Cart:
     return cart.model_copy(update={"address": Address(text=text.strip(), details=details.strip())})
 
 
+def set_customer_name(cart: Cart, name: str) -> Cart:
+    name = name.strip()
+    if not name:
+        raise InvalidContactError("a name can't be empty")
+    return cart.model_copy(update={"customer_name": name})
+
+
+def parse_phone(text: str) -> str | None:
+    """A Colombian phone as ten digits: a mobile (3xx) or a landline (60x). None otherwise."""
+    digits = re.sub(r"\D", "", text)
+    if len(digits) == 12 and digits.startswith("57"):
+        digits = digits[2:]
+    if len(digits) == 10 and (digits.startswith("3") or digits.startswith("60")):
+        return digits
+    return None
+
+
+def format_phone(phone: str) -> str:
+    """ "3001234567" as "300 123 4567"."""
+    return f"{phone[:3]} {phone[3:6]} {phone[6:]}"
+
+
+def set_phone(cart: Cart, text: str) -> Cart:
+    phone = parse_phone(text)
+    if phone is None:
+        raise InvalidContactError("not a phone number")
+    return cart.model_copy(update={"phone": phone})
+
+
 def set_payment(
     cart: Cart, config: RestaurantConfig, method_id: str, cash_change_for: int | None = None
 ) -> Cart:
@@ -246,7 +286,7 @@ def set_payment(
 
 def revalidate(cart: Cart, config: RestaurantConfig) -> tuple[Cart, tuple[CartLine, ...]]:
     """Rebuild a saved cart against the current config. Returns it and the lines it lost."""
-    fresh = Cart(address=cart.address)
+    fresh = Cart(address=cart.address, customer_name=cart.customer_name, phone=cart.phone)
     dropped = []
     for line in cart.lines:
         try:
@@ -323,6 +363,10 @@ def pending(cart: Cart, config: RestaurantConfig) -> list[Pending]:
         result.append(Pending.ITEMS)
     if missing_choices(cart, config):
         result.append(Pending.REQUIRED_CHOICES)
+    if cart.customer_name is None:
+        result.append(Pending.NAME)
+    if cart.phone is None:
+        result.append(Pending.PHONE)
     mode = effective_fulfillment(cart, config)
     if mode is None:
         result.append(Pending.FULFILLMENT)

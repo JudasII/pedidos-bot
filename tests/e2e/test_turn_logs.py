@@ -40,7 +40,7 @@ async def test_a_turn_logs_what_happened() -> None:
 
 async def test_confirming_logs_the_order_and_the_new_state() -> None:
     chat = Chat(MINIMAL)
-    logs = await _logs(chat, "un suizo", "no", "efectivo", "sí")
+    logs = await _logs(chat, "un suizo", "no", "Ana", "3001234567", "efectivo", "sí")
     order = await chat.repository.load_order(chat.conversation.id)
     assert order is not None
     assert logs[-1]["order_id"] == order.id
@@ -50,12 +50,14 @@ async def test_confirming_logs_the_order_and_the_new_state() -> None:
 async def test_rejected_requests_are_logged() -> None:
     chat = Chat(BURGER, ScriptedLLM([[AddItem(product="sushi")]]))
     [log] = await _logs(chat, "un sushi")
-    assert log["notices"] == ("product_not_found",)
+    assert log["notices"] == ("off_menu",)
 
 
 async def test_customer_data_stays_out_of_the_logs() -> None:
     chat = Chat(BURGER)
-    logs = await _logs(chat, "mi numero es 3001234567", "una doble", "no", "domicilio")
+    logs = await _logs(
+        chat, "mi numero es 3001234567", "una doble", "no", "Ana", "3001234567", "domicilio"
+    )
     logs += await _logs(chat, "donde doña Marta frente al parque")
     text = str(logs)
     assert "3001234567" not in text
@@ -108,7 +110,15 @@ async def test_a_turn_logs_what_the_bot_answered() -> None:
 
 async def test_the_address_stays_out_of_the_logged_reply() -> None:
     chat = Chat(BURGER)
-    logs = await _logs(chat, "una doble", "no", "domicilio", "donde doña Marta frente al parque")
+    logs = await _logs(
+        chat,
+        "una doble",
+        "no",
+        "Ana",
+        "3001234567",
+        "domicilio",
+        "donde doña Marta frente al parque",
+    )
     logs += await _logs(chat, "nequi")  # the summary repeats the address
     assert "Domicilio a" in chat.reply.text and "Marta" in chat.reply.text
     assert "Domicilio a [address]" in logs[-1]["reply"]

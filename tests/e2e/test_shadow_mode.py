@@ -10,7 +10,17 @@ MINIMAL = sample_config("minimal_demo")  # shadow mode off
 
 
 async def _order_sent(chat: Chat, address: str = "Calle 10 # 5-20") -> None:
-    for text in ("una sencilla", "no", "domicilio", address, "efectivo", "50 mil", "sí"):
+    for text in (
+        "una sencilla",
+        "no",
+        "Ana",
+        "3001234567",
+        "domicilio",
+        address,
+        "efectivo",
+        "50 mil",
+        "sí",
+    ):
         await chat.say(text)
     assert chat.state is S.PENDING_STAFF_CONFIRMATION, chat.reply.text
 
@@ -120,7 +130,7 @@ async def test_approving_during_a_handoff_confirms_and_keeps_the_person() -> Non
 
 async def test_without_shadow_mode_staff_are_told_with_nothing_to_decide() -> None:
     chat = Chat(MINIMAL)
-    for text in ("un perrito", "no", "efectivo", "exacto", "sí"):
+    for text in ("un perrito", "no", "Ana", "3001234567", "efectivo", "exacto", "sí"):
         await chat.say(text)
     assert chat.state is S.CONFIRMED, chat.reply.text
     [notification] = chat.staff

@@ -12,6 +12,7 @@ from pedidos_bot.domain.cart import (
     Fulfillment,
     ModifierChoice,
     effective_fulfillment,
+    format_phone,
     totals,
 )
 from pedidos_bot.domain.money import format_cop
@@ -68,6 +69,10 @@ class Responder:
             rows.append(f"{delivery}: {format_cop(total.delivery_fee)}")
         elif mode is Fulfillment.PICKUP:
             rows.append(self.text(Msg.SUMMARY_PICKUP))
+        if cart.customer_name is not None:
+            rows.append(f"A nombre de: {cart.customer_name}")
+        if cart.phone is not None:
+            rows.append(f"Teléfono: {format_phone(cart.phone)}")
         rows.append(f"Total: {format_cop(total.total)}")
         if cart.payment is not None:
             method = self._config.payment_method(cart.payment.method_id)

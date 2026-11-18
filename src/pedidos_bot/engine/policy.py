@@ -13,6 +13,8 @@ class Step(StrEnum):
     ITEMS = "items"
     REQUIRED_CHOICE = "required_choice"
     ANYTHING_ELSE = "anything_else"
+    NAME = "name"
+    PHONE = "phone"
     FULFILLMENT = "fulfillment"
     ADDRESS = "address"
     PAYMENT = "payment"
@@ -65,6 +67,10 @@ def next_step(
     if not items_done:
         offer = () if upsell_offered else upsell_categories(cart, config)
         return NextStep(Step.ANYTHING_ELSE, upsell=offer)
+    if Pending.NAME in slots:
+        return NextStep(Step.NAME)
+    if Pending.PHONE in slots:
+        return NextStep(Step.PHONE)
     if Pending.FULFILLMENT in slots:
         return NextStep(Step.FULFILLMENT)
     if Pending.ADDRESS in slots:
