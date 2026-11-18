@@ -60,6 +60,16 @@ uv run pedidos-bot run --restaurant burger_demo   # answer customers on Telegram
 
 Restaurant configs live in `config/restaurants/<id>.yaml` and are validated against [docs/config.schema.json](docs/config.schema.json) (editors with YAML language support autocomplete from it).
 
+## Real chats
+
+Real conversations are private data and never enter this repository. To work with WhatsApp chats exported from the phone ("Export chat", with or without media):
+
+```bash
+uv run pedidos-bot chats import ~/Downloads/exports/
+```
+
+It needs `PII_HASH_SALT` in `.env`. The exports are copied to `data/private/chats/raw/` and one masked transcript per conversation is written to `data/private/chats/masked/`: roles instead of names, placeholders for phones, street addresses, emails and links, and no media. The restaurant is whoever writes in every chat; for a single chat pass `--restaurant "its name in the chat"`. Masking is best effort (a name mentioned in passing survives), so masked transcripts stay private too.
+
 ## Metrics
 
 Published here with real numbers from M5/M6 on: % of orders completed without human intervention, item and modifier accuracy, escalation rate, p50/p95 latency, tokens and cost per order — comparing the local model against hosted models.
