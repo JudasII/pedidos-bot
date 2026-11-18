@@ -31,3 +31,7 @@ Not yet run against the real Bot API: these are the steps.
 8. Tap ✓ on the first, older message of that order: nothing changes and the group is told it is no longer pending.
 
 Use only your own test accounts; nothing from a real customer goes into this file.
+
+## Logs
+
+`run` keeps its log in `data/private/logs/<restaurant>.log` (git-ignored), one readable line per event, appended across restarts. The terminal still shows the same events as JSON. Each `turn` line has the customer's message and the bot's reply, both masked (phones, street addresses, and the address the customer gave, which the summary repeats), plus the state before and after, the actions understood and the notices sent.

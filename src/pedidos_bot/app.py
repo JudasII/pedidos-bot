@@ -7,6 +7,7 @@ import contextlib
 import signal
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 
 import httpx
 import structlog
@@ -26,6 +27,8 @@ from pedidos_bot.storage.memory import InMemoryRepository
 from pedidos_bot.storage.postgres import PostgresRepository
 
 OUTBOX_INTERVAL = 2.0
+LOG_DIR = Path("data/private/logs")
+"""Where `run` keeps each restaurant's log, one file per restaurant. Git-ignored."""
 """Seconds between checks for messages whose retry is due."""
 
 _logger = structlog.get_logger()
@@ -99,7 +102,7 @@ async def serve(
 
 async def run_telegram(config: RestaurantConfig, settings: Settings, staff_chat: str) -> None:
     """One process for one restaurant: its bot and its database (ADR-0005)."""
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, LOG_DIR / f"{config.restaurant.id}.log")
     token = settings.telegram_bot_token.get_secret_value()
     async with (
         PostgresRepository.open(settings.database_url) as repository,

@@ -120,6 +120,7 @@ class ConversationService:
             conversation_id=result.conversation.id,
             order_id=result.order.id if result.order else None,
             message=_loggable(inbound, before, result.actions),
+            reply=_loggable_reply(result.reply, result.conversation),
             state_after=result.conversation.lifecycle.state.value,
             actions=result.actions,
             notices=result.notices,
@@ -356,6 +357,19 @@ def _loggable(inbound: InboundMessage, conversation: Conversation, actions: tupl
     if conversation.asked is Step.ADDRESS or "set_address" in actions:
         return "[address]"
     return mask_text(inbound.content)
+
+
+def _loggable_reply(reply: OutboundMessage | None, conversation: Conversation) -> str | None:
+    """What the bot answered, safe to log. The summary repeats the address as written."""
+    if reply is None:
+        return None
+    text = reply.text
+    address = conversation.cart.address
+    if address is not None:
+        for part in (address.text, address.details):
+            if part:
+                text = text.replace(part, "[address]")
+    return mask_text(text)
 
 
 def _with_note(result: TurnResult, note: str) -> TurnResult:
