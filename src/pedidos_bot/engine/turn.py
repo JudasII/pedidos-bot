@@ -87,6 +87,8 @@ class Turn:
         self._understood = False
         self._cart_changed = False
         self._asking_for_more = False
+        self._asked_before: tuple[Clarification, ...] = conversation.clarifications
+        """Questions owed when the turn began: the customer may answer one by restating."""
 
     @property
     def _cart(self) -> Cart:
@@ -281,6 +283,7 @@ class Turn:
         item = self._resolver.resolve_item(action.product, action.modifiers)
         best = item.product.best
         if best is not None:
+            self._settle_question_for(best.id, action.quantity)
             self._add_line(best.id, action.quantity, item.modifiers, action.note)
         elif item.product.status is MatchStatus.AMBIGUOUS:
             clarification = ProductClarification(
@@ -292,6 +295,29 @@ class Turn:
             self._queue(clarification)
         else:
             self._note(Msg.PRODUCT_NOT_FOUND, text=action.product)
+
+    def _settle_question_for(self, product_id: str, quantity: int) -> None:
+        """Ordering one of the options of an earlier "which one?" answers it: drop the question.
+
+        Kept, it would add the product a second time when the customer then taps an option.
+        Only when the new item covers all the units asked about: for "2 beers", one "lager"
+        leaves the question open.
+        """
+        answered = next(
+            (
+                c
+                for c in self._asked_before
+                if isinstance(c, ProductClarification)
+                and product_id in c.candidates
+                and quantity >= c.quantity
+            ),
+            None,
+        )
+        if answered is None:
+            return
+        self._asked_before = tuple(c for c in self._asked_before if c is not answered)
+        remaining = tuple(c for c in self.conversation.clarifications if c is not answered)
+        self._update(clarifications=remaining)
 
     def _queue(self, clarification: Clarification) -> None:
         self._update(clarifications=(*self.conversation.clarifications, clarification))
