@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 from enum import StrEnum
 from functools import cached_property
+from string import Formatter
 from typing import Annotated, Literal, Self
 from zoneinfo import ZoneInfo
 
@@ -143,6 +144,23 @@ class Tone(FrozenModel):
     style: ToneStyle = ToneStyle.INFORMAL
     emoji: Literal["none", "light", "heavy"] = "light"
     greeting: str = Field(min_length=1)
+    off_menu: str | None = Field(default=None, min_length=1)
+    """What to say when a customer asks for something the restaurant doesn't sell, with
+    `{item}` for what they asked for. It can invite them to order something else. Without
+    it, the bot says plainly that it isn't on the menu."""
+
+    @field_validator("off_menu")
+    @classmethod
+    def _check_off_menu(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        try:
+            names = {name for _, name, _, _ in Formatter().parse(value) if name is not None}
+        except ValueError as exc:
+            raise ValueError(f"off_menu has a stray brace: {exc}") from exc
+        if names - {"item"}:
+            raise ValueError("off_menu can only use {item}")
+        return value
 
 
 class UpsellRule(FrozenModel):

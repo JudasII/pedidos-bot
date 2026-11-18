@@ -65,7 +65,7 @@ async def test_the_outbox_loop_retries_a_failed_send(monkeypatch: pytest.MonkeyP
 
 async def test_a_cashier_approves_an_order_from_the_staff_chat() -> None:
     config = sample_config("burger_demo")
-    said = ("una sencilla", "no", "para recoger", "nequi", "sí")
+    said = ("una sencilla", "no", "Ana", "3001234567", "para recoger", "nequi", "sí")
     fake = FakeTelegram(*(make_update(n, chat_id=7, text=text) for n, text in enumerate(said, 1)))
     repository = InMemoryRepository()
 

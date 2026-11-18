@@ -356,6 +356,8 @@ def _loggable(inbound: InboundMessage, conversation: Conversation, actions: tupl
     """The message, safe to log. Addresses have no fixed form, so a pattern isn't enough."""
     if conversation.asked is Step.ADDRESS or "set_address" in actions:
         return "[address]"
+    if conversation.asked is Step.NAME:
+        return "[name]"
     return mask_text(inbound.content)
 
 
@@ -369,6 +371,8 @@ def _loggable_reply(reply: OutboundMessage | None, conversation: Conversation) -
         for part in (address.text, address.details):
             if part:
                 text = text.replace(part, "[address]")
+    if conversation.cart.customer_name:
+        text = text.replace(conversation.cart.customer_name, "[name]")
     return mask_text(text)
 
 

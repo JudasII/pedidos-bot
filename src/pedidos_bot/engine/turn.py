@@ -41,14 +41,28 @@ from pedidos_bot.engine.lifecycle import Event, LifecycleState
 from pedidos_bot.engine.policy import NextStep, Step, next_step
 from pedidos_bot.engine.resolver import Match, MatchStatus, MenuResolver
 from pedidos_bot.engine.responder import Responder, join_options
-from pedidos_bot.engine.shortcuts import is_confirm, is_deny, is_done_adding
+from pedidos_bot.engine.shortcuts import is_command, is_confirm, is_deny, is_done_adding
 from pedidos_bot.engine.templates import Msg
 
 MAX_MISUNDERSTOOD = 2
 """Consecutive turns without understanding before a person takes over."""
 
 _SLOT_ACTIONS = (SetFulfillment, SetAddress, SetPayment)
+_OPEN_QUESTIONS = (Step.ITEMS, Step.ANYTHING_ELSE)
+"""Questions that only ask what the customer wants: an invitation to order can replace them."""
 _AMOUNT = re.compile(r"(?:(?:pago )?con |un billete de |de )?\$?\s*(\d[\d.,]*)\s*(mil|k)?")
+_NAME_PREFIX = re.compile(
+    r"^(?:(?:es\s+)?a\s+nombre\s+de|(?:mi\s+nombre\s+es)|me\s+llamo|soy|para|es)\s+",
+    re.IGNORECASE,
+)
+_MAX_NAME_WORDS = 5
+_NOT_A_NAME = re.compile(
+    r"^(?:y\s+)?(?:un|una|uno|unos|unas|otro|otra|otros|otras|\d+|dos|tres|cuatro|quiero|quisiera"
+    r"|dame|me\s+das|regalame|regálame|me\s+regalas|agrega|agregale|agrégale|quita|quitale"
+    r"|quítale|cambia|mejor|sin|con)\b",
+    re.IGNORECASE,
+)
+"""How an order starts, not a name: "y una pizza", "quítale la cebolla"."""
 _EXACT_CASH = re.compile(r"\b(exacto|exacta|justo|completo|sencillo)\b")
 
 
@@ -87,6 +101,10 @@ class Turn:
         self._understood = False
         self._cart_changed = False
         self._asking_for_more = False
+        self._suggested = False
+        """The restaurant's off-menu phrase was said; it already invites the next order."""
+        self._asked_before: tuple[Clarification, ...] = conversation.clarifications
+        """Questions owed when the turn began: the customer may answer one by restating."""
 
     @property
     def _cart(self) -> Cart:
@@ -131,6 +149,36 @@ class Turn:
             return self._answer_required_choice(text)
         if self.conversation.asked is Step.CASH_CHANGE:
             return self._answer_cash_change(text)
+        if self.conversation.asked is Step.NAME:
+            return self._answer_name(text)
+        if self.conversation.asked is Step.PHONE:
+            return self._answer_phone(text)
+        return False
+
+    def _answer_name(self, text: str) -> bool:
+        """The whole answer is the name, unless it is clearly something else."""
+        name = _NAME_PREFIX.sub("", text.strip()).strip(" .,;!¡")
+        looks_like_a_name = (
+            name
+            and "?" not in text
+            and not _NOT_A_NAME.match(text.strip())
+            and not any(char.isdigit() for char in name)
+            and len(name.split()) <= _MAX_NAME_WORDS
+            and not is_command(text)
+            and self._resolver.resolve_item(name).product.status is MatchStatus.NOT_FOUND
+        )
+        if not looks_like_a_name:
+            return False  # an item, a cancel, a question: the rest of the pipeline reads it
+        self._set_cart(carts.set_customer_name(self._cart, name))
+        return True
+
+    def _answer_phone(self, text: str) -> bool:
+        if carts.parse_phone(text) is not None:
+            self._set_cart(carts.set_phone(self._cart, text))
+            return True
+        if any(char.isdigit() for char in text):
+            self._note(Msg.PHONE_INVALID)
+            return True
         return False
 
     def _pop_clarification(self) -> None:
@@ -281,6 +329,7 @@ class Turn:
         item = self._resolver.resolve_item(action.product, action.modifiers)
         best = item.product.best
         if best is not None:
+            self._settle_question_for(best.id, action.quantity)
             self._add_line(best.id, action.quantity, item.modifiers, action.note)
         elif item.product.status is MatchStatus.AMBIGUOUS:
             clarification = ProductClarification(
@@ -291,7 +340,41 @@ class Turn:
             )
             self._queue(clarification)
         else:
-            self._note(Msg.PRODUCT_NOT_FOUND, text=action.product)
+            self._off_menu(action.product)
+
+    def _off_menu(self, item: str) -> None:
+        """Something the restaurant doesn't sell: say so in its words, never "I didn't get it"."""
+        phrase = self._config.tone.off_menu
+        if phrase is None:
+            self._note(Msg.OFF_MENU, item=item)
+            return
+        self._notes.append(phrase.format(item=item))
+        self.notices.append(Msg.OFF_MENU.value)
+        self._understood = True
+        self._suggested = True
+
+    def _settle_question_for(self, product_id: str, quantity: int) -> None:
+        """Ordering one of the options of an earlier "which one?" answers it: drop the question.
+
+        Kept, it would add the product a second time when the customer then taps an option.
+        Only when the new item covers all the units asked about: for "2 beers", one "lager"
+        leaves the question open.
+        """
+        answered = next(
+            (
+                c
+                for c in self._asked_before
+                if isinstance(c, ProductClarification)
+                and product_id in c.candidates
+                and quantity >= c.quantity
+            ),
+            None,
+        )
+        if answered is None:
+            return
+        self._asked_before = tuple(c for c in self._asked_before if c is not answered)
+        remaining = tuple(c for c in self.conversation.clarifications if c is not answered)
+        self._update(clarifications=remaining)
 
     def _queue(self, clarification: Clarification) -> None:
         self._update(clarifications=(*self.conversation.clarifications, clarification))
@@ -488,6 +571,10 @@ class Turn:
                 self._event(Event.CUSTOMER_CONFIRMED)
                 eta = self._responder.eta(self._cart)
                 self._final = self._responder.text(Msg.CONFIRMED, eta=eta)
+        elif self.conversation.asked is Step.ITEMS and confirmed:
+            # "Yes" to "what would you like?" (or to an invitation to order): show what there is.
+            self._understood = True
+            self._notes.append(self._responder.menu())
         elif self.conversation.asked is Step.ANYTHING_ELSE:
             self._understood = True
             if confirmed:
@@ -541,6 +628,8 @@ class Turn:
             )
         question, replies = self._next_question()
         self._update(greeted=True, options=tuple(reply.payload for reply in replies))
+        if self._suggested and self.conversation.asked in _OPEN_QUESTIONS:
+            return OutboundMessage(text="\n\n".join(self._notes))  # it ends in its own question
         return OutboundMessage(text="\n\n".join([*self._notes, question]), quick_replies=replies)
 
     def _next_question(self) -> tuple[str, tuple[QuickReply, ...]]:
@@ -593,6 +682,10 @@ class Turn:
             case Step.FULFILLMENT:
                 options = [responder.text(Msg.OPTION_DELIVERY), responder.text(Msg.OPTION_PICKUP)]
                 return responder.text(Msg.ASK_FULFILLMENT), responder.replies(options)
+            case Step.NAME:
+                return responder.text(Msg.ASK_NAME), ()
+            case Step.PHONE:
+                return responder.text(Msg.ASK_PHONE), ()
             case Step.ADDRESS:
                 return responder.text(Msg.ASK_ADDRESS), ()
             case Step.PAYMENT:

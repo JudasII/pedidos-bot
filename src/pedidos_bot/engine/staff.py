@@ -11,7 +11,7 @@ from enum import StrEnum
 
 from pedidos_bot.channels.base import InboundMessage, MessageKind, OutboundMessage, QuickReply
 from pedidos_bot.config.schema import RestaurantConfig
-from pedidos_bot.domain.cart import Fulfillment, effective_fulfillment
+from pedidos_bot.domain.cart import Fulfillment, effective_fulfillment, format_phone
 from pedidos_bot.domain.money import format_cop
 from pedidos_bot.domain.order import Order, OrderStatus
 from pedidos_bot.engine.responder import Responder
@@ -66,6 +66,9 @@ def order_notification(order: Order, config: RestaurantConfig) -> OutboundMessag
     if order.revision > 1:
         title += f" (cambio {order.revision - 1})"
     rows = [title]
+    if cart.customer_name is not None or cart.phone is not None:
+        contact = [cart.customer_name or "", format_phone(cart.phone) if cart.phone else ""]
+        rows.append("Cliente: " + " · ".join(part for part in contact if part))
     for line in cart.lines:
         rows.append(f"• {responder.line(line)}: {format_cop(line.line_total)}")
         if line.note:

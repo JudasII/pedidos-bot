@@ -56,7 +56,9 @@ _NUMBER_WORDS = {"un": 1, "una": 1, "uno": 1, "dos": 2, "tres": 3, "cuatro": 4, 
 _QUANTITY = re.compile(r"^(\d+|un|una|uno|dos|tres|cuatro|cinco)\s+(.+)$")
 _SEGMENTS = re.compile(r",|\by\b")
 _GREETING = re.compile(r"^(hola|buenas|buenos dias|buenas tardes|buenas noches)\b[\s!.]*")
-_ORDER_VERBS = re.compile(r"^(quiero|quisiera|me das|dame|regalame|me regalas|para mi)\s+")
+_ORDER_VERBS = re.compile(
+    r"^(?:(?:quiero|quisiera)(?:\s+pedir)?|me das|dame|regalame|me regalas|para mi)\s+"
+)
 _REMOVE = re.compile(
     r"^(quita|quitale|quitame|saca|sacame|borra|elimina)\s+(?:(?:el|la|los|las)\s+)?"
 )
@@ -107,7 +109,9 @@ class RuleBasedLLM:
         return actions or [Unknown()]
 
     def _segment(self, segment: str, actions: list[Action]) -> None:
-        segment = _ORDER_VERBS.sub("", segment)
+        stripped = _ORDER_VERBS.sub("", segment)
+        ordering = stripped != segment
+        segment = re.sub(r"^y\s+", "", stripped)
         last = actions[-1] if actions else None
         if isinstance(last, AddItem):
             variant = _VARIANT.match(segment)
@@ -119,9 +123,9 @@ class RuleBasedLLM:
                 modifiers = (*last.modifiers, segment)
                 actions[-1] = last.model_copy(update={"modifiers": modifiers})
                 return
-        actions.append(self._action(segment))
+        actions.append(self._action(segment, ordering))
 
-    def _action(self, segment: str) -> Action:
+    def _action(self, segment: str, ordering: bool = False) -> Action:
         remove = _REMOVE.match(segment)
         if remove:
             target = segment[remove.end() :]
@@ -141,8 +145,9 @@ class RuleBasedLLM:
         if payment:
             return SetPayment(method=payment.group(1))
         quantity, product = _quantity(segment)
-        if self._resolver.resolve_item(product).product.status is MatchStatus.NOT_FOUND:
-            return Unknown()
+        not_found = self._resolver.resolve_item(product).product.status is MatchStatus.NOT_FOUND
+        if not_found and not (ordering or product != segment):
+            return Unknown()  # an order needs a verb or a quantity: "una pizza", "quiero pizza"
         return AddItem(product=product, quantity=quantity)
 
 

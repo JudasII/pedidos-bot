@@ -32,6 +32,16 @@ Not yet run against the real Bot API: these are the steps.
 
 Use only your own test accounts; nothing from a real customer goes into this file.
 
+## First manual run (2026-11-17)
+
+The flow worked end to end on Telegram: order, summary, the cashier's ✓ from the group, confirmation. Three findings, each now covered by `tests/e2e/test_first_run.py`:
+
+- **A stale "which one?" added a second burger.** "una hamburguesa con papas sin cebolla" was read as one ambiguous item and the bot asked which product. The tester rephrased the whole order instead; the old question stayed, and tapping "Hamburguesa Sencilla" added a second burger ($18.000 too much). Ordering one of the options, for at least the units asked about, now settles the question.
+- **Off-menu requests got "no te entendí".** Whether something is on the menu was already decided by the resolver; the answer is now the restaurant's `tone.off_menu` phrase (with `{item}`), or a plain "no vendemos {item}" without one. A "sí" to "what would you like?" shows the menu.
+- **Nobody knew who the order was for.** Once the items are done the bot asks for a name and a phone (a Colombian mobile or landline, ten digits). Both appear in the summary and in the staff notification, and are masked in the logs.
+
+Still open: "no, así está bien" is not a known phrase for finishing (#43, #44), and "hamburguesa con papas" is one item to the rule-based fake LLM. The real model (M5) should read it as two.
+
 ## Logs
 
 `run` keeps its log in `data/private/logs/<restaurant>.log` (git-ignored), one readable line per event, appended across restarts. The terminal still shows the same events as JSON. Each `turn` line has the customer's message and the bot's reply, both masked (phones, street addresses, and the address the customer gave, which the summary repeats), plus the state before and after, the actions understood and the notices sent.

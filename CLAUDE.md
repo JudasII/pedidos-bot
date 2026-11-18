@@ -31,7 +31,7 @@ Conversational assistant engine that takes burger-restaurant orders over chat. S
 - One process, one Telegram bot and one PostgreSQL database per restaurant; the schema has no restaurant column, so never share a database (ADR-0005).
 
 ## Code map (as of M4, phase A)
-- `domain/menu.py` menu models · `domain/cart.py` immutable cart + pure ops, `totals()`, `pending()` · `domain/money.py` `format_cop`.
+- `domain/menu.py` menu models · `domain/cart.py` immutable cart + pure ops, `totals()`, `pending()`, the customer's name and phone (`parse_phone`) · `domain/money.py` `format_cop`.
 - `config/schema.py` `RestaurantConfig` · `config/loader.py` `load_restaurant`, `ConfigError`, `resolve_staff_chat_id`, JSON Schema export (`docs/config.schema.json`, kept in sync by a test).
 - `engine/resolver.py` `MenuResolver`: exact → containment → fuzzy; returns RESOLVED / AMBIGUOUS / NOT_FOUND, never guesses. Orders go through `resolve_item`, which checks the whole phrase; `resolve_product` alone ignores leftover words.
 - `engine/actions.py` typed actions (schema in `docs/actions.schema.json`, kept in sync by a test) · `engine/nlu.py` `Nlu` · `llm/base.py` `LLMProvider` · `llm/fake.py` `ScriptedLLM`, `RuleBasedLLM`.

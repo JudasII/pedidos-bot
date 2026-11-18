@@ -6,8 +6,10 @@ from pedidos_bot.domain.cart import (
     ModifierChoice,
     add_item,
     set_address,
+    set_customer_name,
     set_fulfillment,
     set_payment,
+    set_phone,
 )
 from pedidos_bot.engine.policy import Step, next_step, upsell_categories
 from tests.factories import sample_config
@@ -16,8 +18,14 @@ BURGER = sample_config("burger_demo")
 MINIMAL = sample_config("minimal_demo")
 
 
-def _with_burger() -> Cart:
-    return add_item(Cart(), BURGER, "hamburguesa_sencilla")[0]
+def _with_burger(*, contact: bool = True) -> Cart:
+    """A burger in the cart. With `contact`, the customer already said who it is for."""
+    cart = add_item(Cart(), BURGER, "hamburguesa_sencilla")[0]
+    return _with_contact(cart) if contact else cart
+
+
+def _with_contact(cart: Cart) -> Cart:
+    return set_phone(set_customer_name(cart, "Ana"), "3001234567")
 
 
 def test_empty_cart_asks_for_items() -> None:
@@ -49,7 +57,12 @@ def test_no_upsell_when_nothing_triggers_it() -> None:
 
 
 def test_the_full_order_of_questions() -> None:
-    cart = _with_burger()
+    cart = _with_burger(contact=False)
+    assert next_step(cart, BURGER).step is Step.ANYTHING_ELSE
+    assert next_step(cart, BURGER, items_done=True).step is Step.NAME
+    cart = set_customer_name(cart, "Ana")
+    assert next_step(cart, BURGER, items_done=True).step is Step.PHONE
+    cart = set_phone(cart, "3001234567")
     assert next_step(cart, BURGER, items_done=True).step is Step.FULFILLMENT
     cart = set_fulfillment(cart, BURGER, Fulfillment.DELIVERY)
     assert next_step(cart, BURGER, items_done=True).step is Step.ADDRESS
@@ -74,7 +87,7 @@ def test_cash_change_is_asked_once() -> None:
 
 
 def test_a_single_fulfillment_mode_is_never_asked() -> None:
-    cart = add_item(Cart(), MINIMAL, "limonada")[0]
+    cart = _with_contact(add_item(Cart(), MINIMAL, "limonada")[0])
     assert next_step(cart, MINIMAL, items_done=True).step is Step.PAYMENT
 
 

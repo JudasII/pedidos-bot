@@ -2,7 +2,15 @@
 
 import pytest
 
-from pedidos_bot.domain.cart import Cart, Fulfillment, add_item, set_fulfillment, set_payment
+from pedidos_bot.domain.cart import (
+    Cart,
+    Fulfillment,
+    add_item,
+    set_customer_name,
+    set_fulfillment,
+    set_payment,
+    set_phone,
+)
 from pedidos_bot.domain.order import (
     IncompleteOrderError,
     OrderSource,
@@ -15,6 +23,7 @@ from tests.factories import config_dict, make_config
 def _cart() -> Cart:
     config = make_config()
     cart, _ = add_item(Cart(), config, "classic", qty=2)
+    cart = set_phone(set_customer_name(cart, "Ana"), "3001234567")
     cart = set_fulfillment(cart, config, Fulfillment.PICKUP)
     return set_payment(cart, config, "transfer")
 
