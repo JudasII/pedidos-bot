@@ -159,12 +159,18 @@ class PostgresRepository:
 
     async def deliver_next(self, send: Sender) -> bool:
         # The row stays locked during the send: other workers skip it, and if this process
-        # dies the lock goes away and the message is due again.
+        # dies the lock goes away and the message is due again. A message is only a candidate
+        # when nothing older is still pending for its chat, being sent or waiting to retry.
         async with self._pool.connection() as connection:
             cursor = await connection.execute(
-                """SELECT id, chat_ref, message, dedupe_key, attempts FROM outbox
+                """SELECT id, chat_ref, message, dedupe_key, attempts FROM outbox AS due
                    WHERE sent_at IS NULL AND failed_at IS NULL AND next_attempt_at <= now()
-                   ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED"""
+                     AND NOT EXISTS (
+                         SELECT 1 FROM outbox AS older
+                         WHERE older.chat_ref = due.chat_ref AND older.id < due.id
+                           AND older.sent_at IS NULL AND older.failed_at IS NULL
+                     )
+                   ORDER BY id LIMIT 1 FOR UPDATE OF due SKIP LOCKED"""
             )
             row = await cursor.fetchone()
             if row is None:

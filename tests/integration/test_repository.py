@@ -21,7 +21,8 @@ def _inbound(external_id: str, chat_ref: str = "chat") -> InboundMessage:
 
 
 def _entry(key: str) -> OutboxEntry:
-    return OutboxEntry("chat", OutboundMessage(text=key), key)
+    """An outbound message. "k1@ana" goes to the chat "ana"; without "@", to "chat"."""
+    return OutboxEntry(key.partition("@")[2] or "chat", OutboundMessage(text=key), key)
 
 
 def _order(qty: int) -> Order:
@@ -128,6 +129,58 @@ async def test_sent_messages_leave_the_outbox_in_order(repository: ConversationR
 async def test_a_failed_send_waits_and_does_not_block_the_others(
     repository: ConversationRepository,
 ) -> None:
+    await _enqueue(repository, "bad@ana", "good@luis")
+    sent: list[str] = []
+
+    async def send(entry: OutboxEntry) -> None:
+        if entry.dedupe_key == "bad@ana":
+            raise ChannelError("down")
+        sent.append(entry.dedupe_key)
+
+    assert await repository.deliver_next(send)
+    assert await repository.deliver_next(send)
+    assert not await repository.deliver_next(send)  # "bad" is not due yet
+    assert sent == ["good@luis"]
+    assert await _pending_keys(repository) == ["bad@ana"]
+
+
+async def test_a_failed_send_holds_back_the_rest_of_its_chat(
+    repository: ConversationRepository,
+) -> None:
+    await _enqueue(repository, "first", "second")
+    attempts: list[str] = []
+
+    async def down(entry: OutboxEntry) -> None:
+        attempts.append(entry.dedupe_key)
+        raise ChannelError("down")
+
+    assert await repository.deliver_next(down)
+    assert not await repository.deliver_next(down)  # "second" must not overtake "first"
+    assert attempts == ["first"]
+    assert await _pending_keys(repository) == ["first", "second"]
+
+
+async def test_the_rest_of_a_chat_follows_once_the_retry_succeeds(
+    repository: ConversationRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(base, "BASE_RETRY_DELAY", timedelta(0))
+    await _enqueue(repository, "first", "second")
+    attempts: list[str] = []
+
+    async def flaky(entry: OutboxEntry) -> None:
+        attempts.append(entry.dedupe_key)
+        if attempts == ["first"]:
+            raise ChannelError("down")
+
+    while await repository.deliver_next(flaky):
+        pass
+    assert attempts == ["first", "first", "second"]
+
+
+async def test_a_message_given_up_on_lets_the_rest_of_its_chat_through(
+    repository: ConversationRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(base, "BASE_RETRY_DELAY", timedelta(0))
     await _enqueue(repository, "bad", "good")
     sent: list[str] = []
 
@@ -136,11 +189,35 @@ async def test_a_failed_send_waits_and_does_not_block_the_others(
             raise ChannelError("down")
         sent.append(entry.dedupe_key)
 
-    assert await repository.deliver_next(send)
-    assert await repository.deliver_next(send)
-    assert not await repository.deliver_next(send)  # "bad" is not due yet
+    while await repository.deliver_next(send):
+        pass
     assert sent == ["good"]
-    assert await _pending_keys(repository) == ["bad"]
+    assert await _pending_keys(repository) == []
+
+
+async def test_a_chat_is_delivered_in_order_by_two_workers(
+    repository: ConversationRepository,
+) -> None:
+    await _enqueue(repository, "ana 1@ana", "ana 2@ana", "luis 1@luis")
+    sending_first = asyncio.Event()
+    release = asyncio.Event()
+    sent: list[str] = []
+
+    async def send(entry: OutboxEntry) -> None:
+        if entry.dedupe_key == "ana 1@ana":
+            sending_first.set()
+            await release.wait()
+        sent.append(entry.dedupe_key)
+
+    slow_worker = asyncio.create_task(repository.deliver_next(send))
+    await sending_first.wait()
+    assert await repository.deliver_next(send)  # another chat goes on meanwhile
+    assert not await repository.deliver_next(send)  # "ana 2" waits for "ana 1"
+    assert sent == ["luis 1@luis"]
+    release.set()
+    assert await slow_worker
+    assert await repository.deliver_next(send)
+    assert sent == ["luis 1@luis", "ana 1@ana", "ana 2@ana"]
 
 
 async def test_a_failed_send_is_retried_when_due(
@@ -166,19 +243,19 @@ async def test_a_failed_send_waits_as_long_as_the_channel_asks(
     repository: ConversationRepository, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(base, "BASE_RETRY_DELAY", timedelta(0))
-    await _enqueue(repository, "slow", "fast")
+    await _enqueue(repository, "slow@ana", "fast@luis")
     attempts: list[str] = []
 
     async def limited(entry: OutboxEntry) -> None:
         attempts.append(entry.dedupe_key)
-        wait = timedelta(hours=1) if entry.dedupe_key == "slow" else timedelta(0)
+        wait = timedelta(hours=1) if entry.dedupe_key == "slow@ana" else timedelta(0)
         if attempts.count(entry.dedupe_key) == 1:
             raise ChannelError("too many requests", retry_after=wait)
 
     while await repository.deliver_next(limited):
         pass
-    assert attempts == ["slow", "fast", "fast"]
-    assert await _pending_keys(repository) == ["slow"]
+    assert attempts == ["slow@ana", "fast@luis", "fast@luis"]
+    assert await _pending_keys(repository) == ["slow@ana"]
 
 
 async def test_a_message_that_keeps_failing_is_given_up(
@@ -218,18 +295,18 @@ async def test_giving_up_is_logged(
 async def test_an_unexpected_send_error_counts_as_a_failure(
     repository: ConversationRepository,
 ) -> None:
-    await _enqueue(repository, "bad", "good")
+    await _enqueue(repository, "bad@ana", "good@luis")
     sent: list[str] = []
 
     async def send(entry: OutboxEntry) -> None:
-        if entry.dedupe_key == "bad":
+        if entry.dedupe_key == "bad@ana":
             raise ValueError("a bug in the adapter")
         sent.append(entry.dedupe_key)
 
     while await repository.deliver_next(send):
         pass
-    assert sent == ["good"]
-    assert await _pending_keys(repository) == ["bad"]
+    assert sent == ["good@luis"]
+    assert await _pending_keys(repository) == ["bad@ana"]
 
 
 async def test_two_workers_never_send_the_same_message(

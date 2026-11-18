@@ -119,9 +119,12 @@ class ConversationRepository(Protocol):
     async def deliver_next(self, send: Sender) -> bool:
         """Attempt the oldest message that is due. False if there is none.
 
-        Any exception from `send` counts as a failed attempt, so one bad message can't block
-        the rest. Delivery is at-least-once: after a crash the message is sent again with the
-        same dedupe key.
+        A chat's messages go out in the order they were written: a message is not due while
+        an older one for the same chat is being sent or waiting for its retry. Other chats
+        are not held up, and a message that is given up on lets the rest of its chat through.
+
+        Any exception from `send` counts as a failed attempt. Delivery is at-least-once:
+        after a crash the message is sent again with the same dedupe key.
         """
         ...
 
