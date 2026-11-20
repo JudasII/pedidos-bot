@@ -59,6 +59,32 @@ At the phone question the tester wrote "a este". It scored 83 against the alias 
 
 Still open from that run, with the rule-based fake LLM: "pedí tenders" (a restatement) adds another one, and "cuánto es?" isn't answered with the total.
 
+## Third manual run (2026-11-20)
+
+The relay worked end to end: the tester and the "cashier" talked through the bot. What it showed, and what changed:
+
+- **The cashier asked for "the code the bot gave you", and the customer had none.** The customer's messages now carry the order code ("¡Pedido E1F5 confirmado!"), and it is the same code the restaurant sees: a chat order's id is its conversation's id.
+- **The handoff notice didn't say which order it was about.** It now names the order in progress, or the chat's last confirmed one: "Último pedido: E1F5 (confirmado) — …".
+- **"quiero hacer un cambio" got "no vendemos hacer un cambio".** Two fixes. The fake LLM only reads an unknown product as an order when it comes with a quantity ("una empanada"); that was a regression of the off-menu change. And a wish to change the order, without the change, is a deterministic shortcut (`change_order`): after a confirmed order it goes to a person ("Tu pedido ya está confirmado…"); before, the bot asks what to change.
+- **The bot said it was a bot again after every order.** Now once per chat.
+- Also: "cuánto es?" answers the total so far, and cash below the total is asked again.
+
+## What the decision tree can't do: scope for the first LLM (M5)
+
+Everything above is deterministic. These cases came up in the manual runs and need a model, because the answer depends on meaning, not on a phrase or a pattern:
+
+- **Restatements and corrections:** "no pedí hamburguesa, pedí tenders" or "solo los tenders, gracias" mean "keep what I have"; the rules read "pedí tenders" as another order.
+- **Compound items:** "una hamburguesa con papas" is two items, or a combo, not one ambiguous product.
+- **What to change in a confirmed order:** "quiero una hamburguesa también". Today any change after confirmation goes to a person.
+- **References to context:** "a este", "lo mismo de ayer", "eso", "la de antes".
+- **Several facts in one sentence:** "a nombre de Juan, cel 300…, a la calle 10". The rules only read a name or a phone when the bot asked for it.
+- **Open questions:** "¿tienen vegana?", ingredients, "¿qué me recomiendas?". Only menu, hours, price and total are answered.
+- **Typos beyond fuzzy matching:** "hla quiero perdir una piza".
+- **Addresses without a street word** ("al lado de la panadería"), and their masking in logs.
+- **Frustration:** offering a person when the customer is annoyed, not only after two misunderstandings.
+- **Voice notes:** they need speech-to-text before any of the above.
+- **Paraphrasing** the templates, which still sound robotic (#45).
+
 ## Logs
 
 `run` keeps its log in `data/private/logs/<restaurant>.log` (git-ignored), one readable line per event, appended across restarts. The terminal still shows the same events as JSON. Each `turn` line has the customer's message and the bot's reply, both masked (phones, street addresses, and the address the customer gave, which the summary repeats), plus the state before and after, the actions understood and the notices sent.

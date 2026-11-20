@@ -187,9 +187,22 @@ def what_they_sent(inbound: InboundMessage) -> str:
     return inbound.content
 
 
-def handoff_notice(code: str, said: str, items: list[str]) -> OutboundMessage:
+ORDER_STATUS = {
+    OrderStatus.PENDING_VALIDATION: "esperando aprobación",
+    OrderStatus.CONFIRMED: "confirmado",
+    OrderStatus.REJECTED: "rechazado",
+    OrderStatus.WITHDRAWN: "retirado",
+}
+
+
+def handoff_notice(
+    code: str, said: str, items: list[str], order: str | None = None
+) -> OutboundMessage:
+    """`order` names the order the customer is most likely talking about, if any."""
     rows = [f"🙋 Cliente #{code} pide hablar con una persona.", f"Escribió: “{said}”"]
-    if items:
+    if order is not None:
+        rows.append(order)
+    elif items:
         rows.append("Pedido en curso: " + ", ".join(items))
     rows.append(
         f"Responde a este mensaje para escribirle (o /responder {code} tu mensaje). "

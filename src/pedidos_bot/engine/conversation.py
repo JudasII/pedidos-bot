@@ -92,6 +92,10 @@ class Conversation(FrozenModel):
     handoff: Handoff | None = None
     cart: Cart = Cart()
     follows_confirmed: bool = False
+    last_order: str | None = None
+    """Key of this chat's previous confirmed order, so a person can be told which it was."""
+    disclosed: bool = False
+    """The bot said it is a bot. Once per chat: it carries over to the next order."""
     """The previous order of this chat was confirmed, so "cancel" may be about that one."""
     greeted: bool = False
     items_done: bool = False

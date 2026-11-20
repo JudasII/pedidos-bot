@@ -211,3 +211,83 @@ async def test_a_no_about_something_else_keeps_the_question() -> None:
     await chat.say("hamburguesa")
     await chat.say("no quiero cebolla")
     assert chat.conversation.clarifications != ()
+
+
+# --- third manual run (2026-11-20) ----------------------------------------------------------
+
+
+async def _confirmed(chat: Chat) -> str:
+    """A delivery order the cashier approved. Returns its code."""
+    for text in ("unos tenders", "no", "Ana", "3001234567", "para recoger", "nequi", "sí"):
+        await chat.say(text)
+    await chat.tap("Aprobar")
+    assert chat.state is S.CONFIRMED
+    return chat.conversation.code
+
+
+@pytest.mark.parametrize("said", ["quiero hacer un cambio", "quiero editar mi pedido", "editar"])
+async def test_wanting_to_change_something_is_not_off_the_menu(said: str) -> None:
+    chat = Chat(BURGER)
+    await chat.say("hola")
+    assert "no vendemos" not in await chat.say(said)
+
+
+async def test_the_customer_is_told_the_order_code() -> None:
+    chat = Chat(BURGER)
+    for text in ("unos tenders", "no", "Ana", "3001234567", "para recoger", "nequi"):
+        await chat.say(text)
+    code = chat.conversation.code
+    assert f"pedido {code}" in await chat.say("sí")
+    assert f"Pedido {code}" in chat.staff[-1].text  # the same code the restaurant sees
+    assert f"{code} confirmado" in await chat.tap("Aprobar")
+
+
+async def test_changing_a_confirmed_order_goes_to_a_person_with_the_order() -> None:
+    chat = Chat(BURGER)
+    code = await _confirmed(chat)
+    reply = await chat.say("quiero hacer un cambio")
+    assert "ya está confirmado" in reply and "alguien del equipo" in reply
+    assert chat.state is S.HANDOFF
+    notice = chat.staff[-1].text
+    assert f"Último pedido: {code} (confirmado)" in notice and "Chicken Tenders" in notice
+
+
+async def test_a_person_asked_for_after_an_order_knows_which_one() -> None:
+    chat = Chat(BURGER)
+    code = await _confirmed(chat)
+    await chat.say("asesor")
+    assert f"Último pedido: {code} (confirmado)" in chat.staff[-1].text
+
+
+async def test_asking_to_change_before_confirming_asks_what() -> None:
+    chat = Chat(BURGER)
+    for text in ("unos tenders", "no", "Ana", "3001234567", "para recoger", "nequi"):
+        await chat.say(text)
+    assert chat.state is S.AWAITING_CONFIRMATION
+    assert "qué le cambiamos" in await chat.say("quiero hacer un cambio")
+    assert chat.state is S.ORDERING
+
+
+async def test_the_bot_says_it_is_a_bot_once_per_chat() -> None:
+    chat = Chat(BURGER)
+    await _confirmed(chat)
+    assert "asistente automático" not in await chat.say("una sencilla")
+
+
+async def test_cash_below_the_total_is_asked_again() -> None:
+    chat = Chat(BURGER)
+    for text in ("unos tenders", "no", "Ana", "3001234567", "para recoger", "efectivo"):
+        await chat.say(text)
+    reply = await chat.say("10 mil")
+    assert "no alcanza" in reply and "$16.000" in reply
+    assert chat.conversation.cart.payment is not None
+    assert chat.conversation.cart.payment.cash_change_for is None
+    assert chat.state is S.ORDERING
+
+
+@pytest.mark.parametrize("said", ["cuanto es?", "¿cuánto sería?", "cuál es el total?"])
+async def test_how_much_is_answered_with_the_total(said: str) -> None:
+    chat = Chat(BURGER)
+    await chat.say("unos tenders")
+    reply = await chat.say(said)
+    assert "$16.000" in reply and "no te lo sé" not in reply

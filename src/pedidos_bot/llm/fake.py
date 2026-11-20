@@ -111,7 +111,6 @@ class RuleBasedLLM:
 
     def _segment(self, segment: str, actions: list[Action]) -> None:
         stripped = _ORDER_VERBS.sub("", segment)
-        ordering = stripped != segment
         segment = re.sub(r"^y\s+", "", stripped)
         last = actions[-1] if actions else None
         if isinstance(last, AddItem):
@@ -124,9 +123,9 @@ class RuleBasedLLM:
                 modifiers = (*last.modifiers, segment)
                 actions[-1] = last.model_copy(update={"modifiers": modifiers})
                 return
-        actions.append(self._action(segment, ordering))
+        actions.append(self._action(segment))
 
-    def _action(self, segment: str, ordering: bool = False) -> Action:
+    def _action(self, segment: str) -> Action:
         if _REFUSAL.match(segment) or not re.search(r"[^\W\d_]", segment):
             return Unknown()  # "no pedí eso", "300 123 4567": never an order
         remove = _REMOVE.match(segment)
@@ -149,8 +148,9 @@ class RuleBasedLLM:
             return SetPayment(method=payment.group(1))
         quantity, product = _quantity(segment)
         not_found = self._resolver.resolve_item(product).product.status is MatchStatus.NOT_FOUND
-        if not_found and not (ordering or product != segment):
-            return Unknown()  # an order needs a verb or a quantity: "una pizza", "quiero pizza"
+        # An unknown product needs a quantity: "una pizza" is an order, "hacer un cambio" isn't.
+        if not_found and product == segment:
+            return Unknown()
         return AddItem(product=product, quantity=quantity)
 
 

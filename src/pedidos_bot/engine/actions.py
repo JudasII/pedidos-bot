@@ -70,13 +70,19 @@ class CancelOrder(_Action):
     type: Literal["cancel_order"] = "cancel_order"
 
 
+class ChangeOrder(_Action):
+    """The customer wants to change the order, without saying how yet."""
+
+    type: Literal["change_order"] = "change_order"
+
+
 class AskHuman(_Action):
     type: Literal["ask_human"] = "ask_human"
 
 
 class AskQuestion(_Action):
     type: Literal["ask_question"] = "ask_question"
-    topic: Literal["menu", "hours", "price", "other"] = "other"
+    topic: Literal["menu", "hours", "price", "total", "other"] = "other"
     product: str = ""
     """For `price`: the product, in the customer's words."""
 
@@ -102,6 +108,7 @@ Action = Annotated[
     | AskHuman
     | AskQuestion
     | Greeting
+    | ChangeOrder
     | Unknown,
     Field(discriminator="type"),
 ]

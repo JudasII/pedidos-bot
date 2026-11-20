@@ -24,6 +24,7 @@ from pedidos_bot.engine.resolver import MenuResolver
 from pedidos_bot.engine.responder import Responder, join_options
 from pedidos_bot.engine.shortcuts import detect, is_back, is_cancel, is_confirm, is_deny
 from pedidos_bot.engine.staff import (
+    ORDER_STATUS,
     StaffAction,
     StaffDecision,
     StaffReply,
@@ -106,7 +107,9 @@ class ConversationService:
                     return TurnResult(duplicate=True)
                 before = scope.conversation
                 log = log.bind(conversation_id=before.id, state_before=before.lifecycle.state.value)
-                result = self._starting_handoff(await self._process(before, inbound), inbound)
+                result = await self._starting_handoff(
+                    scope, await self._process(before, inbound), inbound
+                )
                 assert result.conversation is not None
                 scope.save(result.conversation)
                 key = f"{inbound.channel}:{inbound.external_id}"
@@ -149,7 +152,9 @@ class ConversationService:
 
     # --- handoff ------------------------------------------------------------------------
 
-    def _starting_handoff(self, result: TurnResult, inbound: InboundMessage) -> TurnResult:
+    async def _starting_handoff(
+        self, scope: TurnScope, result: TurnResult, inbound: InboundMessage
+    ) -> TurnResult:
         """A turn that hands the customer to a person records it and tells the staff chat."""
         conversation = result.conversation
         assert conversation is not None
@@ -157,7 +162,16 @@ class ConversationService:
             return result
         handoff = Handoff(code=conversation.code, since=inbound.sent_at)
         items = [self._responder.line(line) for line in conversation.cart.lines]
-        notice = handoff_notice(handoff.code, what_they_sent(inbound), items)
+        order = await scope.load_order(conversation.id)
+        latest = order is not None
+        if order is None and conversation.last_order:
+            order = await scope.load_order(conversation.last_order)
+        about = None
+        if order is not None:
+            lines = ", ".join(self._responder.line(line) for line in order.cart.lines)
+            label = "Pedido en curso" if latest else "Último pedido"
+            about = f"{label}: {order.code} ({ORDER_STATUS[order.status]}) — {lines}"
+        notice = handoff_notice(handoff.code, what_they_sent(inbound), items, about)
         reply = result.reply
         if reply is not None:  # the way back, so the customer is never stuck with nobody
             back = self._responder.text(Msg.BACK_TO_BOT)
@@ -332,7 +346,8 @@ class ConversationService:
             status = OrderStatus.CONFIRMED if approved else OrderStatus.REJECTED
             scope.place_order(order.model_copy(update={"status": status}))
             if approved:
-                text = self._responder.text(Msg.CONFIRMED, eta=self._responder.eta(order.cart))
+                eta = self._responder.eta(order.cart)
+                text = self._responder.text(Msg.CONFIRMED, eta=eta, code=order.code)
             else:
                 text = self._responder.text(Msg.STAFF_REJECTED)
             scope.enqueue(OutboxEntry(order.chat_ref, OutboundMessage(text=text), key))
@@ -467,8 +482,9 @@ class ConversationService:
             return TurnResult(conversation, reply)
         if conversation.lifecycle.is_terminal:
             confirmed = state is LifecycleState.CONFIRMED
+            last_order = conversation.id if confirmed else None
             conversation = _new_conversation(conversation).model_copy(
-                update={"follows_confirmed": confirmed}
+                update={"follows_confirmed": confirmed, "last_order": last_order}
             )
         inbound = _read_numbered_option(inbound, conversation)
         turn = Turn(conversation, self._config, self._resolver, self._responder)
@@ -540,7 +556,9 @@ def _with_note(result: TurnResult, note: str) -> TurnResult:
 
 
 def _new_conversation(previous: Conversation) -> Conversation:
-    return Conversation(channel=previous.channel, chat_ref=previous.chat_ref)
+    return Conversation(
+        channel=previous.channel, chat_ref=previous.chat_ref, disclosed=previous.disclosed
+    )
 
 
 def _read_numbered_option(inbound: InboundMessage, conversation: Conversation) -> InboundMessage:

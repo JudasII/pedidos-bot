@@ -75,6 +75,7 @@
             "menu",
             "hours",
             "price",
+            "total",
             "other"
           ],
           "title": "Topic",
@@ -108,6 +109,23 @@
         "type"
       ],
       "title": "CancelOrder",
+      "type": "object"
+    },
+    "ChangeOrder": {
+      "additionalProperties": false,
+      "description": "The customer wants to change the order, without saying how yet.",
+      "properties": {
+        "type": {
+          "const": "change_order",
+          "default": "change_order",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "ChangeOrder",
       "type": "object"
     },
     "Confirm": {
@@ -364,6 +382,7 @@
             "ask_human": "#/$defs/AskHuman",
             "ask_question": "#/$defs/AskQuestion",
             "cancel_order": "#/$defs/CancelOrder",
+            "change_order": "#/$defs/ChangeOrder",
             "confirm": "#/$defs/Confirm",
             "deny": "#/$defs/Deny",
             "greeting": "#/$defs/Greeting",
@@ -412,6 +431,9 @@
           },
           {
             "$ref": "#/$defs/Greeting"
+          },
+          {
+            "$ref": "#/$defs/ChangeOrder"
           },
           {
             "$ref": "#/$defs/Unknown"

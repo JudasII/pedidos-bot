@@ -59,6 +59,9 @@ class Msg(StrEnum):
     BOT_BACK = "bot_back"
     BACK_TO_BOT = "back_to_bot"
     HANDOFF_HINT = "handoff_hint"
+    CASH_SHORT = "cash_short"
+    TOTAL_SO_FAR = "total_so_far"
+    TOTAL_EMPTY = "total_empty"
     QUESTION_UNKNOWN = "question_unknown"
     HOURS = "hours"
     HOURS_UNKNOWN = "hours_unknown"
@@ -107,8 +110,8 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.SUMMARY_DELIVERY: "Domicilio a {address}",
         Msg.SUMMARY_PICKUP: "Recoges en el local",
         Msg.CONFIRM_QUESTION: "¿Confirmamos?",
-        Msg.CONFIRMED: "¡Pedido confirmado! Llega en {eta}.",
-        Msg.SENT_TO_STAFF: "¡Listo! Estamos confirmando tu pedido y ya te avisamos.",
+        Msg.CONFIRMED: "¡Pedido {code} confirmado! Llega en {eta}.",
+        Msg.SENT_TO_STAFF: "¡Listo! Estamos confirmando tu pedido {code} y ya te avisamos.",
         Msg.STILL_PENDING: "Tu pedido sigue en confirmación, ya casi te avisamos.",
         Msg.ALREADY_CONFIRMED: "Tu pedido ya está confirmado.",
         Msg.CANCELLED: "Listo, cancelé tu pedido. Aquí estamos cuando quieras.",
@@ -117,6 +120,9 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.BOT_BACK: "Listo, sigo yo con tu pedido.",
         Msg.BACK_TO_BOT: "Volver al asistente",
         Msg.HANDOFF_HINT: "Si prefieres seguir conmigo, toca “Volver al asistente”.",
+        Msg.CASH_SHORT: "Con {amount} no alcanza: el total es {total}.",
+        Msg.TOTAL_SO_FAR: "Por ahora vas en {total}.",
+        Msg.TOTAL_EMPTY: "Todavía no has pedido nada.",
         Msg.RESUME_PROMPT: "¿Seguimos con tu pedido de {items}?",
         Msg.RECOVER_PROMPT: "Tenías un pedido sin terminar: {items}. ¿Lo retomamos?",
         Msg.NO_LONGER_AVAILABLE: "Ya no tenemos {items}.",
@@ -177,8 +183,10 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.SUMMARY_DELIVERY: "Domicilio a {address}",
         Msg.SUMMARY_PICKUP: "Recoge en el local",
         Msg.CONFIRM_QUESTION: "¿Confirma su pedido?",
-        Msg.CONFIRMED: "Su pedido está confirmado. Tiempo estimado: {eta}.",
-        Msg.SENT_TO_STAFF: "Gracias. Estamos confirmando su pedido y pronto le avisaremos.",
+        Msg.CONFIRMED: "Su pedido {code} está confirmado. Tiempo estimado: {eta}.",
+        Msg.SENT_TO_STAFF: (
+            "Gracias. Estamos confirmando su pedido {code} y pronto le avisaremos."
+        ),
         Msg.STILL_PENDING: "Su pedido sigue en confirmación, pronto le avisaremos.",
         Msg.ALREADY_CONFIRMED: "Su pedido ya está confirmado.",
         Msg.CANCELLED: "Su pedido fue cancelado. Quedamos atentos.",
@@ -189,6 +197,9 @@ TEMPLATES: dict[ToneStyle, dict[Msg, str]] = {
         Msg.BOT_BACK: "Con gusto, continúo yo con su pedido.",
         Msg.BACK_TO_BOT: "Volver al asistente",
         Msg.HANDOFF_HINT: "Si prefiere continuar conmigo, toque “Volver al asistente”.",
+        Msg.CASH_SHORT: "Con {amount} no alcanza: el total es {total}.",
+        Msg.TOTAL_SO_FAR: "Hasta el momento, su pedido suma {total}.",
+        Msg.TOTAL_EMPTY: "Aún no ha agregado nada a su pedido.",
         Msg.RESUME_PROMPT: "¿Continuamos con su pedido de {items}?",
         Msg.RECOVER_PROMPT: "Tenía un pedido sin terminar: {items}. ¿Desea retomarlo?",
         Msg.NO_LONGER_AVAILABLE: "Ya no contamos con {items}.",
