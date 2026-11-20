@@ -12,7 +12,9 @@ from pedidos_bot.channels.base import InboundMessage, MessageKind
 from pedidos_bot.engine.actions import (
     Action,
     AskHuman,
+    AskQuestion,
     CancelOrder,
+    ChangeOrder,
     Confirm,
     Deny,
     Greeting,
@@ -49,6 +51,21 @@ _CANCEL = _phrases(
     "cancelar", "cancela", "cancelalo", "cancela todo", "cancelar pedido", "cancela el pedido",
     "ya no quiero", "ya no quiero nada", "olvídalo", "olvidalo mejor", "déjalo así",
 )  # fmt: skip
+_CHANGE = _phrases(
+    "quiero hacer un cambio", "hacer un cambio", "un cambio", "quiero cambiar mi pedido",
+    "cambiar mi pedido", "cambiar el pedido", "quiero editar mi pedido", "editar mi pedido",
+    "editar el pedido", "editar", "quiero modificar mi pedido", "modificar mi pedido",
+    "modificar el pedido", "modificar",
+)  # fmt: skip
+_TOTAL = _phrases(
+    "cuanto es", "cuanto seria", "cuanto me sale", "cuanto queda", "cuanto debo", "cuanto es todo",
+    "cuanto seria todo", "cuanto es en total", "cual es el total", "el total", "total",
+    "cuanto va", "cuanto llevo",
+)  # fmt: skip
+_BACK = _phrases(
+    "volver", "volver al asistente", "seguir con el bot", "seguir con el asistente", "el bot",
+    "asistente", "bot",
+)  # fmt: skip
 _HUMAN = _phrases(
     "asesor", "un asesor", "hablar con un asesor", "persona", "una persona",
     "hablar con una persona", "quiero hablar con alguien", "humano", "un humano", "ayuda humana",
@@ -74,6 +91,15 @@ def is_deny(text: str) -> bool:
     return _key(text) in _DENY
 
 
+def is_back(text: str) -> bool:
+    """The customer wants the bot back during a handoff."""
+    return _key(text) in _BACK
+
+
+def is_cancel(text: str) -> bool:
+    return _key(text) in _CANCEL
+
+
 def is_command(text: str) -> bool:
     """A yes, a no, cancelling or asking for a person: never an answer like a name."""
     key = _key(text)
@@ -95,6 +121,8 @@ def detect(message: InboundMessage, resolver: MenuResolver) -> tuple[Action, ...
     for phrases, action in (
         (_DENY, Deny()),
         (_CANCEL, CancelOrder()),
+        (_CHANGE, ChangeOrder()),
+        (_TOTAL, AskQuestion(topic="total")),
         (_HUMAN, AskHuman()),
         (_DELIVERY, SetFulfillment(mode="delivery")),
         (_PICKUP, SetFulfillment(mode="pickup")),

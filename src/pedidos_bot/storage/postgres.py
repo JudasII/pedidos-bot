@@ -148,6 +148,23 @@ class PostgresRepository:
         async with self._pool.connection() as connection:
             return await _load_order(connection, idempotency_key)
 
+    async def load_by_code(self, code: str) -> Conversation | None:
+        async with self._pool.connection() as connection:
+            cursor = await connection.execute(
+                "SELECT state FROM conversations WHERE upper(left(state->>'id', 4)) = %s LIMIT 1",
+                (code,),
+            )
+            row = await cursor.fetchone()
+        return Conversation.model_validate(row[0]) if row else None
+
+    async def in_handoff(self) -> list[Conversation]:
+        async with self._pool.connection() as connection:
+            cursor = await connection.execute(
+                "SELECT state FROM conversations WHERE state->'lifecycle'->>'state' = 'handoff'"
+            )
+            rows = await cursor.fetchall()
+        return [Conversation.model_validate(row[0]) for row in rows]
+
     async def pending_outbound(self) -> list[OutboxEntry]:
         async with self._pool.connection() as connection:
             cursor = await connection.execute(

@@ -5,7 +5,7 @@ import pytest
 from pedidos_bot.channels.base import MessageKind
 from pedidos_bot.engine.lifecycle import Event, Lifecycle
 from pedidos_bot.engine.lifecycle import LifecycleState as S
-from pedidos_bot.engine.staff import Verdict, parse_staff
+from pedidos_bot.engine.staff import StaffReply, StaffReturn, Verdict, parse_staff
 from tests.factories import make_inbound
 
 
@@ -44,3 +44,47 @@ def test_a_decision_during_a_handoff_keeps_the_handoff(event: Event, after: S) -
 def test_a_handoff_from_ordering_has_nothing_to_decide() -> None:
     handoff = Lifecycle().apply(Event.HANDOFF_REQUESTED)
     assert not handoff.can(Event.STAFF_APPROVED)
+
+
+def _staff_text(text: str, reply_to: str | None = None) -> object:
+    return parse_staff(make_inbound(external_id="9", text=text, reply_to_text=reply_to))
+
+
+def test_a_reply_to_a_message_about_a_customer_is_for_that_customer() -> None:
+    action = _staff_text("Ya va", reply_to="💬 #AB12: ¿y mi pedido?")
+    assert isinstance(action, StaffReply)
+    assert (action.code, action.text, action.external_id) == ("AB12", "Ya va", "9")
+
+
+@pytest.mark.parametrize(
+    ("text", "reply_to", "code", "said"),
+    [
+        ("/responder ab12 Ya va", None, "AB12", "Ya va"),
+        ("/responder@demo_bot AB12 Ya va\ncon todo", None, "AB12", "Ya va\ncon todo"),
+        ("/responder Ya va", "🙋 Cliente #CD34 pide hablar con una persona.", "CD34", "Ya va"),
+    ],
+)
+def test_the_responder_command(text: str, reply_to: str | None, code: str, said: str) -> None:
+    action = _staff_text(text, reply_to)
+    assert isinstance(action, StaffReply) and (action.code, action.text) == (code, said)
+
+
+@pytest.mark.parametrize(
+    ("text", "reply_to"), [("/devolver AB12", None), ("/devolver", "💬 #AB12: gracias")]
+)
+def test_the_devolver_command(text: str, reply_to: str | None) -> None:
+    action = _staff_text(text, reply_to)
+    assert isinstance(action, StaffReturn) and action.code == "AB12"
+
+
+@pytest.mark.parametrize(
+    ("text", "reply_to"),
+    [
+        ("hola equipo", None),  # chatter
+        ("ok", "🧾 Pedido AB12"),  # a reply to an order, not to a customer in a handoff
+        ("/devolver", None),  # no customer named
+        ("/responder AB12", None),  # nothing to say
+    ],
+)
+def test_anything_else_from_staff_asks_for_nothing(text: str, reply_to: str | None) -> None:
+    assert _staff_text(text, reply_to) is None

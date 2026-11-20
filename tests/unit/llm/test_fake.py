@@ -66,3 +66,11 @@ async def test_scripted_llm_fails_loudly_when_called_unexpectedly() -> None:
     request = LLMRequest(messages=(LLMMessage(role="user", content="hola"),))
     with pytest.raises(AssertionError, match="unexpected LLM call"):
         await ScriptedLLM().complete(request)
+
+
+@pytest.mark.parametrize(
+    "text", ["no pedi hamburguesa", "no quiero eso", "301 234 5678", "3012345678"]
+)
+def test_a_refusal_or_a_phone_number_is_never_an_order(text: str) -> None:
+    llm = RuleBasedLLM(MenuResolver(sample_config("burger_demo")))
+    assert not any(isinstance(action, AddItem) for action in llm.parse(text))

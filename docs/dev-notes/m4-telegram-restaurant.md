@@ -42,6 +42,49 @@ The flow worked end to end on Telegram: order, summary, the cashier's ✓ from t
 
 Still open: "no, así está bien" is not a known phrase for finishing (#43, #44), and "hamburguesa con papas" is one item to the rule-based fake LLM. The real model (M5) should read it as two.
 
+## Handoff relay (#20)
+
+Found in the first run: "asesor" put the chat in handoff, nobody at the restaurant was told, and there was no way out. Every later message got no answer.
+
+- **Asking for a person** (or a voice note, photo, location, two misunderstandings) tells the staff chat: "🙋 Cliente #AB12 pide hablar con una persona", what they wrote, the order in progress and how to answer.
+- **What the customer writes** during the handoff reaches the staff chat as "💬 #AB12: …". Media can't be forwarded yet: a voice note shows as "[nota de voz]", a photo as "[foto]", a location as a map link.
+- **The cashier answers** with Telegram's "Reply" on any of those messages (they all carry `#AB12`), or with `/responder AB12 text`. Privacy mode delivers both: replies to the bot's messages and commands.
+- **`/devolver AB12`**, or `/devolver` as a reply, gives the customer back to the bot, which goes on with the order where it was.
+- **The customer can leave**: the handoff message carries a "Volver al asistente" button (or they write "volver"), and "cancelar" cancels. The staff chat is told either way.
+- **Nobody answers**: after `session.handoff_timeout_minutes` without a message from staff, the bot takes over, says so to the customer and to the staff chat. A check runs every minute, and the customer's next message ends an expired handoff too. A chat left in handoff by an older version (no handoff details) ends at its next message.
+
+## Second manual run (2026-11-19)
+
+At the phone question the tester wrote "a este". It scored 83 against the alias "la especial" (the shared article "la"/"a" did the work), so the bot asked "Especial or Sencilla?". The question was queued again on every turn, "no pedí hamburguesa" didn't drop it, and each tap on "Hamburguesa Sencilla" added a burger: the order reached the restaurant with 4 burgers and 3 tenders nobody asked for ($140.000 instead of $36.000). The cashier rejected it, which is what shadow mode is for. Fixed: leading articles carry no weight in fuzzy matching, an identical question is never queued twice, a no to the thing asked about drops it, and the fake LLM never reads a refusal or a bare number as an order. The conversation is in `tests/e2e/test_first_run.py`.
+
+Still open from that run, with the rule-based fake LLM: "pedí tenders" (a restatement) adds another one, and "cuánto es?" isn't answered with the total.
+
+## Third manual run (2026-11-20)
+
+The relay worked end to end: the tester and the "cashier" talked through the bot. What it showed, and what changed:
+
+- **The cashier asked for "the code the bot gave you", and the customer had none.** The customer's messages now carry the order code ("¡Pedido E1F5 confirmado!"), and it is the same code the restaurant sees: a chat order's id is its conversation's id.
+- **The handoff notice didn't say which order it was about.** It now names the order in progress, or the chat's last confirmed one: "Último pedido: E1F5 (confirmado) — …".
+- **"quiero hacer un cambio" got "no vendemos hacer un cambio".** Two fixes. The fake LLM only reads an unknown product as an order when it comes with a quantity ("una empanada"); that was a regression of the off-menu change. And a wish to change the order, without the change, is a deterministic shortcut (`change_order`): after a confirmed order it goes to a person ("Tu pedido ya está confirmado…"); before, the bot asks what to change.
+- **The bot said it was a bot again after every order.** Now once per chat.
+- Also: "cuánto es?" answers the total so far, and cash below the total is asked again.
+
+## What the decision tree can't do: scope for the first LLM (M5)
+
+Everything above is deterministic. These cases came up in the manual runs and need a model, because the answer depends on meaning, not on a phrase or a pattern:
+
+- **Restatements and corrections:** "no pedí hamburguesa, pedí tenders" or "solo los tenders, gracias" mean "keep what I have"; the rules read "pedí tenders" as another order.
+- **Compound items:** "una hamburguesa con papas" is two items, or a combo, not one ambiguous product.
+- **What to change in a confirmed order:** "quiero una hamburguesa también". Today any change after confirmation goes to a person.
+- **References to context:** "a este", "lo mismo de ayer", "eso", "la de antes".
+- **Several facts in one sentence:** "a nombre de Juan, cel 300…, a la calle 10". The rules only read a name or a phone when the bot asked for it.
+- **Open questions:** "¿tienen vegana?", ingredients, "¿qué me recomiendas?". Only menu, hours, price and total are answered.
+- **Typos beyond fuzzy matching:** "hla quiero perdir una piza".
+- **Addresses without a street word** ("al lado de la panadería"), and their masking in logs.
+- **Frustration:** offering a person when the customer is annoyed, not only after two misunderstandings.
+- **Voice notes:** they need speech-to-text before any of the above.
+- **Paraphrasing** the templates, which still sound robotic (#45).
+
 ## Logs
 
 `run` keeps its log in `data/private/logs/<restaurant>.log` (git-ignored), one readable line per event, appended across restarts. The terminal still shows the same events as JSON. Each `turn` line has the customer's message and the bot's reply, both masked (phones, street addresses, and the address the customer gave, which the summary repeats), plus the state before and after, the actions understood and the notices sent.

@@ -298,6 +298,9 @@ def to_inbound(update: dict[str, Any], staff_chat: str | None = None) -> Inbound
         fields = {"kind": MessageKind.UNSUPPORTED}
     if "caption" in message:
         fields["text"] = message["caption"]
+    quoted = message.get("reply_to_message") or {}
+    if quoted.get("text") or quoted.get("caption"):
+        fields["reply_to_text"] = quoted.get("text") or quoted.get("caption")
     chat_id = str(message["chat"]["id"])
     sender = message.get("from") or {}
     return InboundMessage(
