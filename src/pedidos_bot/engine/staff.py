@@ -206,6 +206,12 @@ def returned_notice(code: str) -> OutboundMessage:
     return OutboundMessage(text=f"✅ #{code} volvió al asistente automático.")
 
 
+def customer_left_notice(code: str, *, cancelled: bool) -> OutboundMessage:
+    if cancelled:
+        return OutboundMessage(text=f"❌ #{code} canceló el pedido.")
+    return OutboundMessage(text=f"↩️ #{code} volvió al asistente por su cuenta.")
+
+
 def timeout_notice(code: str, minutes: int) -> OutboundMessage:
     text = f"⏱️ #{code}: nadie respondió en {minutes} minutos; el asistente automático retomó."
     return OutboundMessage(text=text)

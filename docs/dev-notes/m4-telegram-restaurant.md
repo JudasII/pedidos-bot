@@ -50,7 +50,14 @@ Found in the first run: "asesor" put the chat in handoff, nobody at the restaura
 - **What the customer writes** during the handoff reaches the staff chat as "💬 #AB12: …". Media can't be forwarded yet: a voice note shows as "[nota de voz]", a photo as "[foto]", a location as a map link.
 - **The cashier answers** with Telegram's "Reply" on any of those messages (they all carry `#AB12`), or with `/responder AB12 text`. Privacy mode delivers both: replies to the bot's messages and commands.
 - **`/devolver AB12`**, or `/devolver` as a reply, gives the customer back to the bot, which goes on with the order where it was.
+- **The customer can leave**: the handoff message carries a "Volver al asistente" button (or they write "volver"), and "cancelar" cancels. The staff chat is told either way.
 - **Nobody answers**: after `session.handoff_timeout_minutes` without a message from staff, the bot takes over, says so to the customer and to the staff chat. A check runs every minute, and the customer's next message ends an expired handoff too. A chat left in handoff by an older version (no handoff details) ends at its next message.
+
+## Second manual run (2026-11-19)
+
+At the phone question the tester wrote "a este". It scored 83 against the alias "la especial" (the shared article "la"/"a" did the work), so the bot asked "Especial or Sencilla?". The question was queued again on every turn, "no pedí hamburguesa" didn't drop it, and each tap on "Hamburguesa Sencilla" added a burger: the order reached the restaurant with 4 burgers and 3 tenders nobody asked for ($140.000 instead of $36.000). The cashier rejected it, which is what shadow mode is for. Fixed: leading articles carry no weight in fuzzy matching, an identical question is never queued twice, a no to the thing asked about drops it, and the fake LLM never reads a refusal or a bare number as an order. The conversation is in `tests/e2e/test_first_run.py`.
+
+Still open from that run, with the rule-based fake LLM: "pedí tenders" (a restatement) adds another one, and "cuánto es?" isn't answered with the total.
 
 ## Logs
 

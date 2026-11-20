@@ -11,7 +11,7 @@ from time import perf_counter
 
 import structlog
 
-from pedidos_bot.channels.base import InboundMessage, MessageKind, OutboundMessage
+from pedidos_bot.channels.base import InboundMessage, MessageKind, OutboundMessage, QuickReply
 from pedidos_bot.config.schema import RestaurantConfig
 from pedidos_bot.domain.cart import CartLine, revalidate
 from pedidos_bot.domain.order import Order, OrderStatus
@@ -22,13 +22,14 @@ from pedidos_bot.engine.nlu import Nlu
 from pedidos_bot.engine.policy import Step
 from pedidos_bot.engine.resolver import MenuResolver
 from pedidos_bot.engine.responder import Responder, join_options
-from pedidos_bot.engine.shortcuts import detect, is_confirm, is_deny
+from pedidos_bot.engine.shortcuts import detect, is_back, is_cancel, is_confirm, is_deny
 from pedidos_bot.engine.staff import (
     StaffAction,
     StaffDecision,
     StaffReply,
     StaffReturn,
     Verdict,
+    customer_left_notice,
     decision_notice,
     handoff_notice,
     not_in_handoff_notice,
@@ -157,9 +158,19 @@ class ConversationService:
         handoff = Handoff(code=conversation.code, since=inbound.sent_at)
         items = [self._responder.line(line) for line in conversation.cart.lines]
         notice = handoff_notice(handoff.code, what_they_sent(inbound), items)
+        reply = result.reply
+        if reply is not None:  # the way back, so the customer is never stuck with nobody
+            back = self._responder.text(Msg.BACK_TO_BOT)
+            reply = reply.model_copy(
+                update={
+                    "text": f"{reply.text}\n\n{self._responder.text(Msg.HANDOFF_HINT)}",
+                    "quick_replies": (QuickReply(title=back, payload=back),),
+                }
+            )
         return replace(
             result,
             conversation=conversation.model_copy(update={"handoff": handoff}),
+            reply=reply,
             staff=(*result.staff, notice),
         )
 
@@ -184,6 +195,13 @@ class ConversationService:
         return _with_note(result, self._responder.text(note))
 
     async def _in_handoff(self, conversation: Conversation, inbound: InboundMessage) -> TurnResult:
+        code = conversation.code
+        if is_back(inbound.content):
+            result = self._back_to_the_bot(conversation, Msg.BOT_BACK)
+            return replace(result, staff=(customer_left_notice(code, cancelled=False),))
+        if is_cancel(inbound.content):
+            result = await self._respond(self._end_handoff(conversation), inbound)
+            return replace(result, staff=(customer_left_notice(code, cancelled=True),))
         if not self._handoff_expired(conversation, inbound.sent_at):
             return TurnResult(conversation, staff=(relay_notice(conversation.code, inbound),))
         result = await self._respond(self._end_handoff(conversation), inbound)

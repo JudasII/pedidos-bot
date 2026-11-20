@@ -172,3 +172,41 @@ async def test_relayed_messages_are_masked_in_the_logs() -> None:
     with capture_logs() as logs:
         await chat.say("mi número es 3001234567")
     assert "3001234567" not in str(logs)
+
+
+# --- the customer leaves ----------------------------------------------------------------------
+
+
+async def test_the_handoff_message_offers_a_way_back() -> None:
+    chat = Chat(BURGER)
+    await _with_a_person(chat)
+    reply = chat.reply
+    assert "Volver al asistente" in reply.text
+    assert [button.title for button in reply.quick_replies] == ["Volver al asistente"]
+
+
+@pytest.mark.parametrize("said", ["Volver al asistente", "volver"])
+async def test_the_customer_can_go_back_to_the_bot(said: str) -> None:
+    chat = Chat(BURGER)
+    code = await _with_a_person(chat)
+    seen = await chat.say(said)
+    assert "sigo yo" in seen and "¿Algo más?" in seen
+    assert chat.state is S.ORDERING and chat.conversation.handoff is None
+    assert chat.lines == [("hamburguesa_sencilla", 1, set())]
+    assert f"#{code} volvió al asistente por su cuenta" in chat.staff[-1].text
+
+
+async def test_the_customer_can_cancel_from_the_handoff() -> None:
+    chat = Chat(BURGER)
+    code = await _with_a_person(chat)
+    seen = await chat.say("cancelar")
+    assert "cancelé tu pedido" in seen
+    assert chat.state is S.CANCELLED
+    assert f"#{code} canceló" in chat.staff[-1].text
+
+
+async def test_anything_else_still_goes_to_the_person() -> None:
+    chat = Chat(BURGER)
+    code = await _with_a_person(chat)
+    assert await chat.say("¿vuelven a abrir mañana?") == ""
+    assert chat.staff[-1].text == f"💬 #{code}: ¿vuelven a abrir mañana?"

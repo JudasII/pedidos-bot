@@ -49,6 +49,10 @@ _CANCEL = _phrases(
     "cancelar", "cancela", "cancelalo", "cancela todo", "cancelar pedido", "cancela el pedido",
     "ya no quiero", "ya no quiero nada", "olvídalo", "olvidalo mejor", "déjalo así",
 )  # fmt: skip
+_BACK = _phrases(
+    "volver", "volver al asistente", "seguir con el bot", "seguir con el asistente", "el bot",
+    "asistente", "bot",
+)  # fmt: skip
 _HUMAN = _phrases(
     "asesor", "un asesor", "hablar con un asesor", "persona", "una persona",
     "hablar con una persona", "quiero hablar con alguien", "humano", "un humano", "ayuda humana",
@@ -72,6 +76,15 @@ def is_done_adding(text: str) -> bool:
 
 def is_deny(text: str) -> bool:
     return _key(text) in _DENY
+
+
+def is_back(text: str) -> bool:
+    """The customer wants the bot back during a handoff."""
+    return _key(text) in _BACK
+
+
+def is_cancel(text: str) -> bool:
+    return _key(text) in _CANCEL
 
 
 def is_command(text: str) -> bool:
