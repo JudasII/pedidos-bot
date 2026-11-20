@@ -393,7 +393,6 @@ async def test_an_order_from_a_failed_turn_is_not_saved(
     assert await repository.load_order("key") is None
 
 
-@pytest.mark.postgres
 async def test_conversations_are_found_by_code_and_by_handoff(
     repository: ConversationRepository,
 ) -> None:
@@ -410,6 +409,7 @@ async def test_conversations_are_found_by_code_and_by_handoff(
     assert [c.chat_ref for c in await repository.in_handoff()] == ["ana"]
 
 
+@pytest.mark.postgres
 async def test_migrations_run_once(database_url: str) -> None:
     names = sorted(p.name for p in MIGRATIONS_DIR.glob("*.sql"))
     async with await psycopg.AsyncConnection.connect(database_url) as connection:
