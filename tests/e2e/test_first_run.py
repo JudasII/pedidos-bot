@@ -3,7 +3,10 @@
 import pytest
 from structlog.testing import capture_logs
 
+from pedidos_bot.engine.actions import AddItem
 from pedidos_bot.engine.lifecycle import LifecycleState as S
+from pedidos_bot.engine.policy import Step
+from pedidos_bot.llm.fake import ScriptedLLM
 from tests.e2e.harness import Chat
 from tests.factories import make_config, sample_config
 
@@ -162,3 +165,49 @@ async def test_name_and_phone_stay_out_of_the_logs() -> None:
     assert "Juan" not in text and "Pérez" not in text and "4567" not in text
     assert logs[0]["message"] == "[name]"
     assert "A nombre de: [name]" in logs[-1]["reply"]
+
+
+# --- second manual run (2026-11-19) ---------------------------------------------------------
+
+
+async def _asked_for_the_phone(chat: Chat) -> None:
+    for text in ("quiero unos tenders, una malteada y una corona", "chocolate", "no", "Pepito"):
+        await chat.say(text)
+    assert chat.conversation.asked is Step.PHONE
+
+
+async def test_a_stray_short_answer_is_not_read_as_a_burger() -> None:
+    """At the phone question the tester wrote "a este"; it became "Especial or Sencilla?"."""
+    chat = Chat(BURGER)
+    await _asked_for_the_phone(chat)
+    reply = await chat.say("a este")
+    assert "¿Cuál quieres" not in reply
+    assert chat.conversation.clarifications == ()
+
+
+async def test_the_same_question_is_never_queued_twice() -> None:
+    chat = Chat(BURGER, ScriptedLLM([[AddItem(product="hamburguesa")]] * 3))
+    for _ in range(3):
+        await chat.say("hamburguesa")
+    assert len(chat.conversation.clarifications) == 1
+    await chat.say("Hamburguesa Sencilla")
+    assert chat.lines == [("hamburguesa_sencilla", 1, set())]
+
+
+@pytest.mark.parametrize("said", ["no pedí hamburguesa", "sin hamburguesa", "no"])
+async def test_saying_no_to_which_one_drops_the_question(said: str) -> None:
+    chat = Chat(BURGER)
+    await chat.say("unos tenders")
+    await chat.say("hamburguesa")
+    assert "¿Cuál quieres" in chat.reply.text
+    reply = await chat.say(said)
+    assert "¿Cuál quieres" not in reply
+    assert chat.conversation.clarifications == ()
+    assert [line[0] for line in chat.lines] == ["chicken_tenders"]
+
+
+async def test_a_no_about_something_else_keeps_the_question() -> None:
+    chat = Chat(BURGER)
+    await chat.say("hamburguesa")
+    await chat.say("no quiero cebolla")
+    assert chat.conversation.clarifications != ()

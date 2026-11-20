@@ -64,6 +64,7 @@ _REMOVE = re.compile(
 )
 _SET_QUANTITY = re.compile(r"^(?:mejor\s+)?(?:que sean|deja|dejalo en|cambia a)\s+(.+)$")
 _MODIFIER = re.compile(r"^(sin|con)\b")
+_REFUSAL = re.compile(r"^(no|nunca)\b")
 _VARIANT = re.compile(r"^(?:un|una|uno)\s+((?:sin|con)\b.+)$")
 _ADDRESS = re.compile(
     r"\b(calle|cl|carrera|cra|kr|avenida|av|diagonal|dg|transversal|tv|barrio|apto)\b"
@@ -126,6 +127,8 @@ class RuleBasedLLM:
         actions.append(self._action(segment, ordering))
 
     def _action(self, segment: str, ordering: bool = False) -> Action:
+        if _REFUSAL.match(segment) or not re.search(r"[^\W\d_]", segment):
+            return Unknown()  # "no pedí eso", "300 123 4567": never an order
         remove = _REMOVE.match(segment)
         if remove:
             target = segment[remove.end() :]

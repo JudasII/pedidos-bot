@@ -39,7 +39,7 @@ from pedidos_bot.engine.conversation import (
 )
 from pedidos_bot.engine.lifecycle import Event, LifecycleState
 from pedidos_bot.engine.policy import NextStep, Step, next_step
-from pedidos_bot.engine.resolver import Match, MatchStatus, MenuResolver
+from pedidos_bot.engine.resolver import Match, MatchStatus, MenuResolver, normalize
 from pedidos_bot.engine.responder import Responder, join_options
 from pedidos_bot.engine.shortcuts import is_command, is_confirm, is_deny, is_done_adding
 from pedidos_bot.engine.templates import Msg
@@ -56,6 +56,7 @@ _NAME_PREFIX = re.compile(
     re.IGNORECASE,
 )
 _MAX_NAME_WORDS = 5
+_REFUSAL = re.compile(r"^(?:no|sin)\b(?:\s+(?:quiero|pedi|pido|era|es|eran))?\s+(.+)$")
 _NOT_A_NAME = re.compile(
     r"^(?:y\s+)?(?:un|una|uno|unos|unas|otro|otra|otros|otras|\d+|dos|tres|cuatro|quiero|quisiera"
     r"|dame|me\s+das|regalame|regálame|me\s+regalas|agrega|agregale|agrégale|quita|quitale"
@@ -192,10 +193,21 @@ class Turn:
                 self._add_clarified(head)
             return True
         if isinstance(head, ProductClarification):
+            if self._refuses(head, text):
+                self._pop_clarification()
+                return True
             return self._answer_product(head, text)
         if isinstance(head, AddressClarification):
             return self._answer_address(head, text)
         return self._answer_modifier(head, text)
+
+    def _refuses(self, head: ProductClarification, text: str) -> bool:
+        """ "no pedí pizza", "sin pizza": a no to the very thing asked about."""
+        refusal = _REFUSAL.match(normalize(text))
+        if refusal is None:
+            return False
+        named = self._resolver.resolve_product(refusal.group(1)).candidates
+        return any(candidate.id in head.candidates for candidate in named)
 
     def _answer_address(self, head: AddressClarification, text: str) -> bool:
         if not is_confirm(text):
@@ -377,8 +389,10 @@ class Turn:
         self._update(clarifications=remaining)
 
     def _queue(self, clarification: Clarification) -> None:
-        self._update(clarifications=(*self.conversation.clarifications, clarification))
         self._understood = True
+        if clarification in self.conversation.clarifications:
+            return  # asked already: a second copy would add the item twice once answered
+        self._update(clarifications=(*self.conversation.clarifications, clarification))
 
     def _add_line(
         self,
