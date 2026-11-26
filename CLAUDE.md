@@ -53,6 +53,7 @@ Conversational assistant engine that takes burger-restaurant orders over chat. S
 - Python 3.12, `uv`.
 - Quality gate before every commit: `uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest && uv run pytest -m postgres`.
 - Tests: unit in `tests/unit`, end-to-end conversations with `FakeLLM` in `tests/e2e`, integration with real services marked `@pytest.mark.postgres` / `@pytest.mark.ollama` / `@pytest.mark.hosted` (skipped by default; run with `uv run pytest -m postgres`).
+- Mutation testing with mutmut at the end of a phase, not per change: `uv run python scripts/mutation_diff.py main` for the branch, `uv run mutmut run` for everything. See `docs/dev-notes/mutation-testing.md`.
 - Commits: Conventional Commits in English referencing an issue, e.g. `feat(engine): menu resolver with aliases (#12)`.
 - One branch per milestone (`m1-domain-config`), PR to `main` that closes the issues.
 - Relevant decisions ⇒ ADR in `docs/adr/NNNN-title.md` (template: `0000-template.md`).
