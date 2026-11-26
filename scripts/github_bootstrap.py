@@ -519,6 +519,37 @@ ISSUES: list[Issue] = [
             "Rewrite the ones customers misread or that sound robotic",
         ],
     ),
+    # Appended after the M4 manual runs on Telegram (2026-11-24).
+    Issue(
+        "Admin panel for restaurant staff",
+        P2,
+        ["type:feature", "area:channel", "priority:p2", "phase:pilot"],
+        "The manual runs of M4 showed the limits of doing everything in one Telegram group: "
+        "staff can't see which orders are pending, approved or with a person; several customers "
+        "in a handoff share one thread; an order can't be edited, so a change agreed in the chat "
+        "never reaches the stored order; there is no history or search. A small web panel for "
+        "the restaurant's staff solves this. It changes the scope in CLAUDE.md, which keeps a "
+        "web dashboard out, so the decision is ADR-0006. Until it exists, the group can get "
+        "cheap improvements (a /pedidos command, removing the buttons once an order is decided).",
+        [
+            "ADR-0006 accepted and the scope in CLAUDE.md updated",
+            "Staff sign in; one restaurant per deployment (ADR-0005), no customer accounts",
+            "Orders list with status, by day; an order's detail: lines, contact, fulfillment, "
+            "payment, history of decisions",
+            "Handoff inbox: one thread per customer, reply and give back to the bot from the panel",
+            "Edit an order waiting for approval, then approve it; the customer sees the new "
+            "summary",
+            "The Telegram group keeps its notifications; an action taken in one place is "
+            "reflected in the other",
+            "Customer data shown only behind sign-in; logs stay masked",
+        ],
+        [
+            "Payments, POS, CRM",
+            "Reports and analytics beyond the orders list",
+            "Multi-tenant (one panel for several restaurants)",
+            "Customer web ordering (ADR-0004)",
+        ],
+    ),
 ]
 
 
