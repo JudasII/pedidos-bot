@@ -8,6 +8,7 @@ import pytest
 from structlog.testing import capture_logs
 
 from pedidos_bot.channels.base import ChannelError, InboundMessage, OutboundMessage
+from pedidos_bot.channels.memory import InMemoryChannel
 from pedidos_bot.domain.cart import (
     Cart,
     Fulfillment,
@@ -421,3 +422,10 @@ async def test_migrations_run_once(database_url: str) -> None:
 async def test_opening_twice_is_safe(database_url: str) -> None:
     async with PostgresRepository.open(database_url), PostgresRepository.open(database_url):
         pass
+
+
+async def test_delivering_says_how_many_went_out(repository: ConversationRepository) -> None:
+    await _enqueue(repository, "k1@ana", "k2@luis", "k3@ana")
+    channel = InMemoryChannel()
+    assert await base.deliver_pending(repository, channel) == 3
+    assert await base.deliver_pending(repository, channel) == 0
