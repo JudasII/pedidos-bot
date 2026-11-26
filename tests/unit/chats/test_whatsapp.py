@@ -102,3 +102,32 @@ def test_a_link_inside_a_sentence_is_still_text() -> None:
     assert parse("12/11/26, 8:45 p. m. - Ana Demo: https://maps.app.goo.gl/abc").messages[
         0
     ].kind == ("location")
+
+
+def test_a_continuation_belongs_to_the_latest_message() -> None:
+    export = (
+        "12/11/26, 8:45 p. m. - Ana Demo: uno\n"
+        "12/11/26, 8:46 p. m. - Ana Demo: dos\n"
+        "12/11/26, 8:47 p. m. - Ana Demo: tres\n"
+        "y algo más\n"
+    )
+    chat = parse(export)
+    assert [m.text for m in chat.messages] == ["uno", "dos", "tres\ny algo más"]
+    assert chat.stray_lines == 0
+
+
+def test_every_notice_is_counted() -> None:
+    export = (
+        "12/11/26, 8:44 p. m. - Los mensajes están cifrados.\n"
+        "12/11/26, 8:45 p. m. - Ana Demo cambió el asunto.\n"
+        "12/11/26, 8:46 p. m. - Ana Demo: hola\n"
+    )
+    assert parse(export).notices == 2
+
+
+@pytest.mark.parametrize(
+    ("file", "kind"),
+    [("IMG.2026.11.jpg (archivo adjunto)", "image"), ("notas.xyz (archivo adjunto)", "document")],
+)
+def test_an_attachment_is_known_by_its_last_extension(file: str, kind: str) -> None:
+    assert parse(f"12/11/26, 8:45 p. m. - Ana Demo: {file}").messages[0].kind == kind

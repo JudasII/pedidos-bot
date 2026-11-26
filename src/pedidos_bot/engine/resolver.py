@@ -105,7 +105,8 @@ class Match:
     method: MatchMethod
     candidates: tuple[Candidate, ...] = ()
     leftover: str = ""
-    """Words of the query not explained by the matched alias (containment only)."""
+    """Words of the query not explained by the matched alias (containment only), also when
+    several entries share that alias."""
 
     @property
     def best(self) -> Candidate | None:
@@ -239,11 +240,14 @@ class _Index:
         if not hits:
             return None
         candidates = tuple(_candidate(e, 100.0) for e in hits)
-        if len(hits) > 1:
-            return Match(MatchStatus.AMBIGUOUS, raw, MatchMethod.CONTAINS, candidates)
-        surface = next(iter(hits.values()))
-        leftover = " ".join(padded.replace(f" {surface} ", " ", 1).split())
-        return Match(MatchStatus.RESOLVED, raw, MatchMethod.CONTAINS, candidates, leftover)
+        surfaces = set(hits.values())
+        # One shared name for all of them ("pizza" in "pizza sin queso"): the rest of the words
+        # still apply to whichever the customer picks, so they are kept.
+        leftover = ""
+        if len(surfaces) == 1:
+            leftover = " ".join(padded.replace(f" {surfaces.pop()} ", " ", 1).split())
+        status = MatchStatus.AMBIGUOUS if len(hits) > 1 else MatchStatus.RESOLVED
+        return Match(status, raw, MatchMethod.CONTAINS, candidates, leftover)
 
     def _match_shared_word(self, raw: str, query: str) -> Match | None:
         """The query is part of the names of several entries, so it identifies none."""

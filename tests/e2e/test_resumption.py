@@ -155,6 +155,7 @@ async def test_a_product_that_is_gone_is_reported_and_dropped() -> None:
     changed = Chat(make_config(**data), repository=chat.repository, first_message_id=100)
     reply = await changed.say("hola?")
     assert "Ya no tenemos 1 x" in reply
+    assert ".\n\nTenías un pedido sin terminar: 1 x" in reply  # one note, then the question
     await changed.say("sí")
     assert len(changed.lines) == 1
 
@@ -165,8 +166,10 @@ async def test_a_customer_is_told_when_their_whole_cart_is_gone() -> None:
     await chat.say("una clasica")
     data["categories"][0]["products"][0]["available"] = False
     changed = Chat(make_config(**data), repository=chat.repository, first_message_id=100)
-    assert "Ya no tenemos 1 x" in await changed.say("hola?")
+    reply = await changed.say("hola?")
+    assert "Ya no tenemos 1 x" in reply
     assert changed.lines == []
+    assert data["tone"]["greeting"] not in reply  # they were greeted already
 
 
 async def test_thresholds_come_from_the_config() -> None:

@@ -1,12 +1,14 @@
 from pathlib import Path
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from pedidos_bot.config.loader import (
     ConfigError,
     config_json_schema,
     load_config,
+    load_restaurant,
     resolve_staff_chat_id,
 )
 from pedidos_bot.config.schema import RestaurantConfig
@@ -136,3 +138,48 @@ def test_the_off_menu_phrase_may_only_mention_the_item() -> None:
         make_config(tone={"greeting": "Hola", "off_menu": "No vendemos eso {"})
     tone = make_config(tone={"greeting": "Hola", "off_menu": "No vendemos {item}."}).tone
     assert tone.off_menu == "No vendemos {item}."
+
+
+def test_validation_errors_read_as_plain_lines(tmp_path: Path) -> None:
+    data = config_dict()
+    data["restaurant"]["timezone"] = "Mars/Olympus"
+    path = tmp_path / "test_resto.yaml"
+    path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    with pytest.raises(ConfigError) as raised:
+        load_config(path)
+    assert str(raised.value) == (
+        f"{path}: 1 configuration error(s)\n"
+        "  - restaurant.timezone: unknown timezone 'Mars/Olympus'"
+    )
+
+
+def test_broken_yaml_says_so(tmp_path: Path) -> None:
+    path = tmp_path / "bad.yaml"
+    path.write_text("restaurant: [unclosed", encoding="utf-8")
+    with pytest.raises(ConfigError, match="invalid YAML"):
+        load_config(path)
+
+
+def test_the_staff_chat_is_read_from_the_process_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_RESTO_STAFF_CHAT_ID", "-100777")
+    assert resolve_staff_chat_id(make_config()) == "-100777"
+
+
+def test_a_file_that_is_not_a_mapping_says_so(tmp_path: Path) -> None:
+    path = tmp_path / "list.yaml"
+    path.write_text("- uno\n- dos\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="expected a mapping at the top level"):
+        load_config(path)
+
+
+def test_a_restaurant_file_must_be_named_after_its_id(tmp_path: Path) -> None:
+    (tmp_path / "otro.yaml").write_text(
+        yaml.safe_dump(config_dict(), allow_unicode=True), encoding="utf-8"
+    )
+    with pytest.raises(ConfigError) as raised:
+        load_restaurant("otro", tmp_path)
+    assert str(raised.value) == (
+        "otro.yaml declares restaurant.id 'test_resto'; the file name must match the id"
+    )

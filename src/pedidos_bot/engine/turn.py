@@ -364,10 +364,14 @@ class Turn:
             self._settle_question_for(best.id, action.quantity)
             self._add_line(best.id, action.quantity, item.modifiers, action.note)
         elif item.product.status is MatchStatus.AMBIGUOUS:
+            leftover = item.product.leftover
             clarification = ProductClarification(
                 candidates=tuple(c.id for c in item.product.candidates),
                 quantity=action.quantity,
-                modifiers=tuple(m.query for m in item.modifiers),
+                # Kept for whichever product the customer picks: "sin queso" in "una pizza
+                # sin queso" must not be lost to the question.
+                modifiers=tuple(m.query for m in item.modifiers)
+                or (*action.modifiers, *([leftover] if leftover else [])),
                 note=action.note,
             )
             self._queue(clarification)

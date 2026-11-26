@@ -204,6 +204,7 @@ async def test_saying_no_to_which_one_drops_the_question(said: str) -> None:
     assert "¿Cuál quieres" not in reply
     assert chat.conversation.clarifications == ()
     assert [line[0] for line in chat.lines] == ["chicken_tenders"]
+    assert "entendí" not in reply
 
 
 async def test_a_no_about_something_else_keeps_the_question() -> None:
