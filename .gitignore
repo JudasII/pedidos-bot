@@ -39,3 +39,6 @@ eval/reports/*
 
 # Session handoff notes (local only)
 HANDOFF.md
+
+# Mutation testing (mutmut) working copy and results
+mutants/

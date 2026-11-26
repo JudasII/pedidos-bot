@@ -27,6 +27,7 @@ dev = [
     "mypy>=1.13",
     "types-pyyaml>=6.0",
     "pre-commit>=4.0",
+    "mutmut==3.8.1",
 ]
 
 [build-system]
@@ -63,3 +64,14 @@ addopts = "-ra -m 'not ollama and not hosted and not postgres'"
 
 [tool.ruff.lint.per-file-ignores]
 "scripts/github_bootstrap.py" = ["E501"]  # issue texts: readability over line width
+
+[tool.mutmut]
+# Mutation testing: `uv run mutmut run`, scoped with a glob such as "pedidos_bot.engine.turn.*".
+source_paths = ["src/pedidos_bot"]
+# Tests read the restaurant configs and the JSON schemas kept in docs/.
+also_copy = ["config/", "docs/"]
+# The PostgreSQL repository is only exercised by `-m postgres`, which needs a real database
+# that parallel mutants can't share; it is left out rather than counted as survivors.
+do_not_mutate = ["src/pedidos_bot/storage/postgres.py"]
+# The hygiene test reads git history, which the mutants/ copy doesn't have.
+pytest_add_cli_args = ["--ignore=tests/unit/test_repo_hygiene.py", "-p", "no:cacheprovider"]
