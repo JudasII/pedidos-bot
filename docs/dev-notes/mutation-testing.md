@@ -23,7 +23,10 @@ Don't run the whole package after every change: it is the end-of-phase check, no
 | | Mutants | Killed | Survived | No test | Score |
 |---|---:|---:|---:|---:|---:|
 | Baseline | 6,283 | 5,384 | 824 | 75 | 85.7 % (overstated, see below) |
-| Now | 6,260 | 5,683 | 524 | 53 | **90.8 %** |
+| After the first pass | 6,260 | 5,683 | 524 | 53 | 90.8 % |
+| Now, with the resolver and outbox re-measured | 6,258 | 5,620 | 585 | 53 | **89.8 %** |
+
+The score went *down* between the last two rows although more mutants were killed. Re-measuring the resolver, the outbox and the fake LLM (see "Second pass") exposed survivors the baseline had wrongly counted as killed.
 
 By module, for the modules whose tests were strengthened and re-run (survivors and untested together):
 
@@ -41,8 +44,19 @@ By module, for the modules whose tests were strengthened and re-run (survivors a
 | `engine/responder.py` | 7 | 10 | 93.0 % |
 | `engine/lifecycle.py` | 4 | 3 | 90.9 % |
 | `domain/order.py` | 1 | 0 | 100 % |
+| `engine/resolver.py` | 38 (really 111) | 88 | 89.0 % |
+| `storage/base.py`, `storage/memory.py` | 0 (really 6) | 2 | 98.0 % |
 
 **The baseline overstated the score.** `test_two_burgers_one_different_and_a_drink[scripted]` built its `ScriptedLLM` once, at import time. Inside mutmut the suite runs more than once in one process, so the script was already used up and the test failed for *every* mutant it ran against. Those mutants were counted as killed without any test detecting them. Once the test was fixed, a few dozen real survivors appeared, for example the blank line between the parts of a reply; they are killed now. The modules that were not re-run (`cli.py`, `app.py`, `engine/resolver.py`, `llm/fake.py`, `engine/shortcuts.py`, `channels/terminal.py`) keep their baseline numbers, which may be overstated in the same way. A fresh full run would measure them; the skill allows two full runs per phase, and both were spent (the second one aborted on that test).
+
+## Second pass: resolver and outbox
+
+Running `scripts/mutation_diff.py main` mutated every module changed against `main`, which re-measured the ones the first pass hadn't re-run. That confirmed the inflated baseline: the resolver had 111 survivors, not 38, and the outbox had 6, not 0.
+
+- **Tests added:** `tests/unit/engine/test_resolver_details.py` pins what `pedidos-bot resolve` prints and the turn relies on: method, scores, leftover words, candidates and the modifiers kept when it asks which product. A contract test checks the count `deliver_pending` returns.
+- **Resolver:** 111 → 88.
+- **Outbox:** 6 → 2; the two left are equivalent.
+- **Still measured only by the baseline,** so possibly overstated: `cli.py` (255 survivors), `channels/terminal.py`, `engine/nlu.py`, `engine/policy.py`, `observability/masking.py`, `domain/menu.py`, `config/schema.py`, `channels/memory.py`, `llm/base.py`. All but the CLI and terminal showed 100 % in the baseline.
 
 ## What it found besides weak tests
 
@@ -79,11 +93,25 @@ Every survivor ends as one of three things: killed by a test, **equivalent** (no
   - *`_find_line` with two different products:* the "which line?" message names the first one. What it should say for mixed products is a product decision.
 - **Noticed, not changed:** joining snapshots sorts what differs by time. That is fine for real exports, whose times only move forward, but it would reorder messages if a phone's clock jumped back.
 
-### Modules not re-run (385)
+### Resolver (88) and outbox (2), from the second pass
+
+- **Equivalent, about 22:**
+  - `Match.query` set to `None` on product and payment matches: nothing reads it, only modifier queries are used;
+  - `MenuResolver._config`, which is assigned and never read;
+  - `or True` on lookups that can't miss (every product has a category and groups);
+  - the initial values of best score, leftover and hit tracking in the fuzzy and containment passes, overwritten before any candidate counts;
+  - the outbox's `<` versus `<=` against a clock that never repeats an instant;
+  - `claimed = None` versus `False`.
+- **Deferred, about 68:**
+  - fuzzy-score thresholds and tie-breaks: candidate, resolve and gap limits, the runner-up, the window of close candidates, the length gates of partial matching, the negation and number caps, window ranges. Inputs that score exactly at a threshold are impractical to construct;
+  - alternative-reading internals: the order rules of `_settle_rivals`, generic words, the set logic of `_spanning_modifier`, `_single_modifiers`. The remaining mutants change the outcome only for phrasings the two sample menus don't produce. The M6 conversation bank, built from real chats, is the place to exercise them.
+- **Noticed:** `MenuResolver._config` is dead code; it could be removed.
+
+### Modules not re-run (385 at the first pass)
 
 - **`cli.py`, 255:** mostly argparse help texts and the wording of printed messages. The commands themselves are tested.
 - **`app.py`, 78:** `run_telegram` has no test (41 mutants with no test at all). It wires the real process (signals, the httpx client, PostgreSQL), and the manual Telegram runs cover it. The rest are the delivery and handoff loops (intervals, error logging).
-- **`engine/resolver.py`, 38:** alternative-reading internals. They mostly change fields of `Match` that no caller reads (`query`, `method`, a candidate's `score`), or modifier matches the turn now re-derives from the words alone.
+- **`engine/resolver.py`:** re-measured in the second pass, above.
 - **`llm/fake.py`, 10:** the stand-in model that M5 replaces.
 - **`engine/shortcuts.py`, 2:** code that runs at import, before mutmut switches a mutant on, so no test can catch it under this tool.
 - **`channels/terminal.py`, 2:** REPL output.
