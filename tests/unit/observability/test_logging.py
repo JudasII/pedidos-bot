@@ -48,3 +48,18 @@ def test_the_level_applies_to_the_file_too(tmp_path: Path) -> None:
     structlog.get_logger().error("turn_failed", error="ValueError")
     assert "turn_failed" in log_file.read_text(encoding="utf-8")
     assert " turn " not in log_file.read_text(encoding="utf-8")
+
+
+def test_without_a_file_logs_are_json_in_the_terminal(capsys: pytest.CaptureFixture[str]) -> None:
+    configure_logging("INFO")
+    structlog.get_logger().info("turn", message="hola")
+    line = json.loads(capsys.readouterr().err)
+    assert (line["event"], line["message"], line["level"]) == ("turn", "hola", "info")
+    assert line["timestamp"].endswith("Z")
+
+
+def test_the_log_folder_is_created_however_deep(tmp_path: Path) -> None:
+    log_file = tmp_path / "data" / "private" / "logs" / "resto.log"
+    configure_logging("INFO", log_file)
+    structlog.get_logger().info("telegram_started")
+    assert "telegram_started" in log_file.read_text(encoding="utf-8")

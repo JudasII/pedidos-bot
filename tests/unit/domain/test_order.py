@@ -59,3 +59,8 @@ def test_an_incomplete_cart_is_refused() -> None:
             source=OrderSource.CHAT,
             idempotency_key="key",
         )
+
+
+def test_a_new_order_is_its_first_revision() -> None:
+    order = create_order(_cart(), make_config(), source=OrderSource.CHAT, idempotency_key="key")
+    assert order.revision == 1

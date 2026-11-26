@@ -292,3 +292,39 @@ def test_revalidating_keeps_who_the_order_is_for() -> None:
     cart = set_phone(set_customer_name(cart, "Ana"), "3001234567")
     fresh, _ = revalidate(cart, CONFIG)
     assert (fresh.customer_name, fresh.phone) == ("Ana", "3001234567")
+
+
+def test_twelve_digits_count_as_a_phone_only_with_the_country_code() -> None:
+    assert parse_phone("573001234567") == "3001234567"
+    assert parse_phone("113001234567") is None
+
+
+def test_an_address_keeps_its_details() -> None:
+    address = set_address(Cart(), " Calle 10 # 5-20 ", " apto 301 ").address
+    assert address is not None and (address.text, address.details) == (
+        "Calle 10 # 5-20",
+        "apto 301",
+    )
+
+
+def _complete_cart() -> Cart:
+    cart, _ = add_item(Cart(), CONFIG, "classic", note="bien asada")
+    cart = set_fulfillment(cart, CONFIG, Fulfillment.DELIVERY)
+    return set_payment(set_address(cart, "Calle 1", "casa"), CONFIG, "transfer")
+
+
+def test_revalidating_keeps_what_is_still_offered() -> None:
+    fresh, dropped = revalidate(_complete_cart(), CONFIG)
+    assert dropped == ()
+    assert fresh.lines[0].note == "bien asada"
+    assert fresh.fulfillment is Fulfillment.DELIVERY
+    assert fresh.payment is not None and fresh.payment.method_id == "transfer"
+    assert fresh.address is not None and fresh.address.details == "casa"
+
+
+def test_revalidating_drops_a_mode_or_payment_no_longer_offered() -> None:
+    data = config_dict()
+    data["fulfillment"]["delivery"]["enabled"] = False
+    data["payment_methods"] = [m for m in data["payment_methods"] if m["id"] != "transfer"]
+    fresh, _ = revalidate(_complete_cart(), make_config(**data))
+    assert (fresh.fulfillment, fresh.payment) == (None, None)

@@ -197,3 +197,116 @@ def test_a_message_that_differs_between_snapshots_is_kept_both_ways(tmp_path: Pa
     deleted = ANA.replace("Hola! ¿A dónde te lo enviamos?", "Se eliminó este mensaje")
     _import(tmp_path, "before.txt", ANA)
     assert _import(tmp_path, "after.txt", deleted) == (7, 1)
+
+
+# --- what mutation testing showed unguarded -----------------------------------------------------
+
+
+def test_a_name_is_masked_whatever_its_case() -> None:
+    chat = parse("12/11/26, 8:45 p. m. - Ana Prueba: hola, soy ana prueba\n")
+    [line] = mask(chat, {"Local Demo"}, SALT).lines
+    assert line.text == "hola, soy [name] [name]"
+
+
+def test_a_sender_known_only_by_number_leaves_the_text_alone() -> None:
+    lines = mask(parse(LUIS), {"Local Demo"}, SALT).lines
+    assert [line.text for line in lines] == ["buenas, una sencilla", "con gusto"]
+
+
+def test_files_and_folders_can_be_imported_together(tmp_path: Path) -> None:
+    inbox = _exports(tmp_path / "inbox")
+    single = tmp_path / "single.txt"
+    single.write_text(ANA.replace("Ana Prueba", "Eva Prueba"), encoding="utf-8")
+    results = import_exports([single, inbox], tmp_path / "out", salt=SALT)
+    assert len(results) == 3
+
+
+def test_bytes_that_are_not_utf8_are_replaced_not_fatal(tmp_path: Path) -> None:
+    export = tmp_path / "chat.txt"
+    export.write_bytes(ANA.encode() + b"12/11/26, 9:00 p. m. - Ana Prueba: caf\xe9\n")
+    [result] = import_exports([export], tmp_path / "out", salt=SALT, restaurant=["Local Demo"])
+    assert result.messages == 7
+    with zipfile.ZipFile(tmp_path / "chat.zip", "w") as archive:
+        archive.writestr("_chat.txt", ANA.encode() + b"12/11/26, 9:01 p. m. - Ana Prueba: \xff\n")
+    [zipped] = import_exports(
+        [tmp_path / "chat.zip"], tmp_path / "out2", salt=SALT, restaurant=["Local Demo"]
+    )
+    assert zipped.messages == 7
+
+
+def test_broken_archives_say_what_is_wrong(tmp_path: Path) -> None:
+    empty = tmp_path / "empty.zip"
+    with zipfile.ZipFile(empty, "w") as archive:
+        archive.writestr("foto.jpg", b"x")
+    with pytest.raises(ChatImportError, match="no chat text inside"):
+        import_exports([empty], tmp_path / "out", salt=SALT, restaurant=["Local Demo"])
+    fake = tmp_path / "fake.zip"
+    fake.write_text("not a zip", encoding="utf-8")
+    with pytest.raises(ChatImportError, match="not a zip file"):
+        import_exports([fake], tmp_path / "out", salt=SALT, restaurant=["Local Demo"])
+
+
+def test_month_first_dates_reach_the_transcript(tmp_path: Path) -> None:
+    export = tmp_path / "chat.txt"
+    export.write_text("11/13/26, 8:45 PM - Ana Prueba: hola\n", encoding="utf-8")
+    import_exports(
+        [export], tmp_path / "out", salt=SALT, restaurant=["Local Demo"], month_first=True
+    )
+    assert _stored(tmp_path) == ["hola"]
+    [path] = (tmp_path / "out" / "masked").glob("*.json")
+    assert '"2026-11-13T20:45:00"' in path.read_text(encoding="utf-8")
+
+
+def test_an_unreadable_export_does_not_stop_the_rest(tmp_path: Path) -> None:
+    inbox = _exports(tmp_path / "inbox")
+    (inbox / "0-raro.txt").write_text("Ana (8:45): hola\n", encoding="utf-8")  # sorted first
+    results = import_exports([inbox], tmp_path / "out", salt=SALT)
+    assert sum(1 for result in results if result.chat_id is not None) == 2
+
+
+def test_chats_where_only_the_restaurant_writes_stay_apart(tmp_path: Path) -> None:
+    for name in ("uno.txt", "dos.txt"):
+        (tmp_path / name).write_text(
+            f"12/11/26, 8:45 p. m. - Local Demo: {name}\n", encoding="utf-8"
+        )
+    results = import_exports(
+        [tmp_path / "uno.txt", tmp_path / "dos.txt"], tmp_path / "out", salt=SALT,
+        restaurant=["Local Demo"],
+    )  # fmt: skip
+    assert len({result.chat_id for result in results}) == 2
+
+
+def test_long_snapshots_with_repeated_lines_are_joined_without_growing(tmp_path: Path) -> None:
+    # Times only go forward in an export: ten messages a minute for half an hour.
+    said = ["ok" if n % 3 else str(n) for n in range(300)]
+    rows = [f"12/11/26, 8:{n // 10:02d} p. m. - Ana Prueba: {text}" for n, text in enumerate(said)]
+    export = "\n".join(rows) + "\n"
+    first = _import(tmp_path, "a.txt", export)
+    assert _import(tmp_path, "b.txt", export) == (first[0], 0)
+
+
+def test_one_export_with_one_sender_needs_the_restaurant_named(tmp_path: Path) -> None:
+    export = tmp_path / "solo.txt"
+    export.write_text("12/11/26, 8:45 p. m. - Ana Prueba: hola\n", encoding="utf-8")
+    with pytest.raises(ChatImportError, match="one chat alone can't tell"):
+        import_exports([export], tmp_path / "out", salt=SALT)
+
+
+def test_why_the_restaurant_is_unclear_is_spelled_out(tmp_path: Path) -> None:
+    for name, sender in (("a.txt", "Ana Prueba"), ("b.txt", "Beto Prueba")):
+        (tmp_path / name).write_text(f"12/11/26, 8:45 p. m. - {sender}: hola\n", encoding="utf-8")
+    with pytest.raises(ChatImportError) as raised:
+        import_exports([tmp_path / "a.txt", tmp_path / "b.txt"], tmp_path / "out", salt=SALT)
+    assert str(raised.value) == (
+        "can't tell who the restaurant is (nobody writes in every chat): pass its name as it "
+        "appears in the chats with --restaurant"
+    )
+
+
+def test_two_exports_with_the_same_name_are_both_kept(tmp_path: Path) -> None:
+    for folder, text in (("lunes", ANA), ("martes", ANA + EXTRA)):
+        (tmp_path / folder).mkdir()
+        (tmp_path / folder / "chat.txt").write_text(text, encoding="utf-8")
+    import_exports([tmp_path / "lunes", tmp_path / "martes"], tmp_path / "out", salt=SALT,
+                   restaurant=["Local Demo"])  # fmt: skip
+    assert len(list((tmp_path / "out" / "raw").iterdir())) == 2

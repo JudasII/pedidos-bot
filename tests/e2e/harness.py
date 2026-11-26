@@ -46,6 +46,8 @@ class Chat:
             staff_chat=staff_chat,
         )
         self._ids = count(first_message_id)
+        self.applied: bool | int | None = None
+        """What the last staff action or handoff check returned."""
         self._now = datetime(2026, 11, 6, 12, tzinfo=UTC)
         self.last: TurnResult | None = None
         self._conversation: Conversation | None = None
@@ -69,7 +71,8 @@ class Chat:
         await self.channel.receive(message)
         self.last = await self.service.handle(message)
         self._conversation = self.last.conversation or self._conversation
-        await deliver_pending(self.repository, self.channel)
+        _must_survive_a_restart(self._conversation)
+        await self._deliver()
         return self._seen_since(before)
 
     def _seen_since(self, before: int) -> str:
@@ -101,10 +104,8 @@ class Chat:
         decision = parse_staff(action)
         assert decision is not None
         before = len(self.channel.sent)
-        await self.service.handle_staff(decision)
-        loaded = await self.repository.load("test", self.chat_ref)
-        self._conversation = loaded or self._conversation
-        await deliver_pending(self.repository, self.channel)
+        self.applied = await self.service.handle_staff(decision)
+        await self._refresh()
         return self._seen_since(before)
 
     async def staff_says(self, text: str, reply_to: OutboundMessage | None = None) -> str:
@@ -124,22 +125,29 @@ class Chat:
         )
         before = len(self.channel.sent)
         parsed = parse_staff(action)
-        if parsed is not None:
-            await self.service.handle_staff(parsed)
+        self.applied = None if parsed is None else await self.service.handle_staff(parsed)
         await self._refresh()
         return self._seen_since(before)
 
     async def tick(self) -> str:
         """The periodic check for handoffs nobody answered. Returns what the customer sees."""
         before = len(self.channel.sent)
-        await self.service.expire_handoffs(self._now)
+        self.applied = await self.service.expire_handoffs(self._now)
         await self._refresh()
         return self._seen_since(before)
+
+    async def _deliver(self) -> None:
+        await deliver_pending(self.repository, self.channel)
+        keys = [sent.dedupe_key for sent in self.channel.sent]
+        # Keys come from the inbound message that caused them: "<channel>:<id>[:suffix]".
+        assert all(isinstance(key, str) and key.startswith("test:") for key in keys), keys
+        assert len(set(keys)) == len(keys), "two messages share a dedupe key"
 
     async def _refresh(self) -> None:
         loaded = await self.repository.load("test", self.chat_ref)
         self._conversation = loaded or self._conversation
-        await deliver_pending(self.repository, self.channel)
+        _must_survive_a_restart(self._conversation)
+        await self._deliver()
 
     def wait(self, **delta: float) -> None:
         self._now += timedelta(**delta)
@@ -166,3 +174,9 @@ class Chat:
             (line.product_id, line.qty, {m.option_id for m in line.modifiers})
             for line in self.conversation.cart.lines
         ]
+
+
+def _must_survive_a_restart(conversation: Conversation | None) -> None:
+    """What a turn leaves must load back exactly, as PostgreSQL would store and read it."""
+    if conversation is not None:
+        assert Conversation.model_validate_json(conversation.model_dump_json()) == conversation

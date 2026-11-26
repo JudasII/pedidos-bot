@@ -42,6 +42,8 @@ class FakeTelegram:
 
     def __init__(self, *updates: Any) -> None:
         self.updates = list(updates)
+        self.requests: list[tuple[str, httpx.Request]] = []
+        """Every call, with its Bot API method name."""
         self.offsets: list[int | None] = []
         self.sent: list[dict[str, Any]] = []
         self.acknowledged: list[str] = []
@@ -49,6 +51,7 @@ class FakeTelegram:
         """Answers to give instead of the real one, oldest first."""
 
     async def handle(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append((request.url.path.rsplit("/", 1)[-1], request))
         assert request.url.path.startswith(f"/bot{TOKEN}/")
         if self.failures:
             failure = self.failures.pop(0)
