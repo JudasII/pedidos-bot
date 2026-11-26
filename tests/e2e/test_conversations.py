@@ -1,5 +1,6 @@
 """Whole conversations through the real engine. Customer wording is Spanish on purpose."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import pytest
@@ -97,23 +98,24 @@ async def test_full_delivery_flow_in_order() -> None:
     assert chat.state is S.PENDING_STAFF_CONFIRMATION
 
 
-@pytest.mark.parametrize(
-    "llm",
-    [
-        None,
-        ScriptedLLM(
+def _three_items() -> ScriptedLLM:
+    return ScriptedLLM(
+        [
             [
-                [
-                    AddItem(product="sencilla"),
-                    AddItem(product="sencilla", modifiers=("sin cebolla",)),
-                    AddItem(product="coca", modifiers=("grande",)),
-                ]
+                AddItem(product="sencilla"),
+                AddItem(product="sencilla", modifiers=("sin cebolla",)),
+                AddItem(product="coca", modifiers=("grande",)),
             ]
-        ),
-    ],
-    ids=["rules", "scripted"],
-)
-async def test_two_burgers_one_different_and_a_drink(llm: ScriptedLLM | None) -> None:
+        ]
+    )
+
+
+# Factories, not instances: a script is used up by one run, and a test can run twice.
+@pytest.mark.parametrize("make_llm", [lambda: None, _three_items], ids=["rules", "scripted"])
+async def test_two_burgers_one_different_and_a_drink(
+    make_llm: Callable[[], ScriptedLLM | None],
+) -> None:
+    llm = make_llm()
     chat = Chat(BURGER, llm)
     reply = await chat.say("2 sencillas, una sin cebolla, y una coca grande")
     assert "(sin cebolla) y 1 x Coca-Cola" in reply
