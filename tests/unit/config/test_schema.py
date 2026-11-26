@@ -8,6 +8,7 @@ from pedidos_bot.config.loader import (
     ConfigError,
     config_json_schema,
     load_config,
+    load_restaurant,
     resolve_staff_chat_id,
 )
 from pedidos_bot.config.schema import RestaurantConfig
@@ -164,3 +165,21 @@ def test_the_staff_chat_is_read_from_the_process_environment(
 ) -> None:
     monkeypatch.setenv("TEST_RESTO_STAFF_CHAT_ID", "-100777")
     assert resolve_staff_chat_id(make_config()) == "-100777"
+
+
+def test_a_file_that_is_not_a_mapping_says_so(tmp_path: Path) -> None:
+    path = tmp_path / "list.yaml"
+    path.write_text("- uno\n- dos\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="expected a mapping at the top level"):
+        load_config(path)
+
+
+def test_a_restaurant_file_must_be_named_after_its_id(tmp_path: Path) -> None:
+    (tmp_path / "otro.yaml").write_text(
+        yaml.safe_dump(config_dict(), allow_unicode=True), encoding="utf-8"
+    )
+    with pytest.raises(ConfigError) as raised:
+        load_restaurant("otro", tmp_path)
+    assert str(raised.value) == (
+        "otro.yaml declares restaurant.id 'test_resto'; the file name must match the id"
+    )

@@ -310,3 +310,16 @@ def test_two_exports_with_the_same_name_are_both_kept(tmp_path: Path) -> None:
     import_exports([tmp_path / "lunes", tmp_path / "martes"], tmp_path / "out", salt=SALT,
                    restaurant=["Local Demo"])  # fmt: skip
     assert len(list((tmp_path / "out" / "raw").iterdir())) == 2
+
+
+def test_the_reasons_are_spelled_out_exactly(tmp_path: Path) -> None:
+    export = tmp_path / "solo.txt"
+    export.write_text("12/11/26, 8:45 p. m. - Ana Prueba: hola\n", encoding="utf-8")
+    with pytest.raises(ChatImportError) as alone:
+        import_exports([export], tmp_path / "out", salt=SALT)
+    assert "(one chat alone can't tell)" in str(alone.value)
+    (tmp_path / "otra.txt").write_text(ANA + EXTRA, encoding="utf-8")
+    (tmp_path / "una.txt").write_text(ANA, encoding="utf-8")
+    with pytest.raises(ChatImportError) as shared:
+        import_exports([tmp_path / "una.txt", tmp_path / "otra.txt"], tmp_path / "out", salt=SALT)
+    assert "(Ana Prueba, Local Demo all write in every chat)" in str(shared.value)

@@ -328,3 +328,12 @@ def test_revalidating_drops_a_mode_or_payment_no_longer_offered() -> None:
     data["payment_methods"] = [m for m in data["payment_methods"] if m["id"] != "transfer"]
     fresh, _ = revalidate(_complete_cart(), make_config(**data))
     assert (fresh.fulfillment, fresh.payment) == (None, None)
+
+
+def test_lines_are_numbered_one_after_another_without_a_note() -> None:
+    cart, _ = add_item(Cart(), CONFIG, "classic")
+    cart, _ = add_item(
+        cart, CONFIG, "classic", modifiers=[ModifierChoice(group_id="remove", option_id="no_onion")]
+    )
+    assert [(line.line_id, line.note) for line in cart.lines] == [(1, ""), (2, "")]
+    assert cart.next_line_id == 3

@@ -7,6 +7,7 @@ Customer wording is Spanish on purpose.
 import pytest
 from structlog.testing import capture_logs
 
+from pedidos_bot.channels.base import ChannelCapabilities
 from pedidos_bot.engine.actions import AddItem, SetAddress, SetPayment, UpdateItem
 from pedidos_bot.engine.lifecycle import LifecycleState as S
 from pedidos_bot.engine.policy import Step
@@ -331,3 +332,61 @@ async def test_a_short_answer_to_the_cash_question_never_reaches_the_llm() -> No
         "efectivo",
     )
     assert (await chat.say("exacto")).startswith("Este es tu pedido:")
+
+
+# --- third pass: survivors the shared scripted fake had been hiding ---------------------------
+
+
+async def test_a_reply_is_its_notes_and_question_separated_by_a_blank_line() -> None:
+    chat = Chat(BURGER)
+    await chat.say("hola")
+    reply = await chat.say("una sencilla")
+    assert reply == (
+        "Anotado: 1 x Hamburguesa Sencilla.\n\n"
+        "¿Le sumamos algo de acompañantes, bebidas o malteadas?"
+    )
+
+
+async def test_a_line_lists_its_options_separated_by_commas() -> None:
+    chat = Chat(
+        BURGER, ScriptedLLM([[AddItem(product="sencilla", modifiers=("tocineta", "huevo"))]])
+    )
+    assert "Anotado: 1 x Hamburguesa Sencilla (tocineta extra, huevo)." in await chat.say("x")
+
+
+async def test_choosing_a_product_with_nothing_extra_adds_it_plainly() -> None:
+    chat = Chat(BURGER)
+    await chat.say("hamburguesa")
+    reply = await chat.say("Hamburguesa Sencilla")
+    assert "No pude ponerle" not in reply
+    assert chat.lines == [("hamburguesa_sencilla", 1, set())]
+
+
+async def test_too_many_extras_are_refused_by_product_name() -> None:
+    extras = ("tocineta", "queso extra", "carne extra", "huevo", "cebolla caramelizada")
+    chat = Chat(BURGER, ScriptedLLM([[AddItem(product="sencilla", modifiers=extras)]]))
+    assert "Eso no se puede con Hamburguesa Sencilla" in await chat.say("x")
+    assert chat.lines == []
+
+
+async def test_the_last_numbered_option_can_be_chosen() -> None:
+    chat = Chat(BURGER, capabilities=ChannelCapabilities())  # numbered options
+    for text in ("unos tenders", "no", "Ana", "3001234567", "para recoger"):
+        await chat.say(text)
+    await chat.say("3")
+    payment = chat.conversation.cart.payment
+    assert payment is not None and payment.method_id == "card_on_delivery"
+
+
+async def test_coming_back_after_exactly_the_quiet_time_asks_first() -> None:
+    chat = Chat(BURGER)
+    await chat.say("unos tenders")
+    chat.wait(minutes=BURGER.session.resume_silently_minutes)
+    assert "¿Seguimos con tu pedido" in await chat.say("una corona")
+
+
+async def test_coming_back_after_exactly_a_day_offers_to_recover() -> None:
+    chat = Chat(BURGER)
+    await chat.say("unos tenders")
+    chat.wait(hours=BURGER.session.resume_prompt_hours)
+    assert "¿Lo retomamos?" in await chat.say("una corona")

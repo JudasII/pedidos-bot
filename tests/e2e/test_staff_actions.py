@@ -3,6 +3,7 @@
 Each test here pins a behavior that mutation testing showed no test was guarding.
 """
 
+import contextlib
 from datetime import timedelta
 
 from structlog.testing import capture_logs
@@ -12,6 +13,7 @@ from pedidos_bot.domain.order import OrderSource, create_order
 from pedidos_bot.engine.lifecycle import Event, Lifecycle
 from pedidos_bot.engine.lifecycle import LifecycleState as S
 from pedidos_bot.engine.staff import StaffDecision, StaffReply, Verdict
+from pedidos_bot.llm.fake import ScriptedLLM
 from tests.e2e.harness import Chat
 from tests.factories import sample_config
 
@@ -393,3 +395,42 @@ async def test_a_recovered_order_does_not_ask_for_cash_again() -> None:
     chat.wait(hours=30)
     await chat.say("hola")
     assert (await chat.say("sí")).startswith("Este es tu pedido:")
+
+
+async def test_a_person_asked_for_while_staff_decide_sees_the_order_in_progress() -> None:
+    chat = Chat(BURGER)
+    for text in (
+        "unos tenders",
+        "una corona",
+        "no",
+        "Ana",
+        "3001234567",
+        "para recoger",
+        "nequi",
+        "sí",
+    ):
+        await chat.say(text)
+    code = chat.conversation.code
+    await chat.say("asesor")
+    assert (
+        f"Pedido en curso: {code} (esperando aprobación) — 1 x Chicken Tenders, 1 x Corona"
+        in chat.staff[-1].text.splitlines()
+    )
+
+
+async def test_after_a_cancelled_order_a_person_is_told_of_no_last_order() -> None:
+    chat = Chat(BURGER)
+    await chat.say("unos tenders")
+    await chat.say("cancelar")
+    await chat.say("asesor")
+    assert "Último pedido" not in chat.staff[-1].text
+
+
+async def test_a_failed_turn_logs_where_it_was() -> None:
+    chat = Chat(BURGER, ScriptedLLM([]))  # any call to the model fails
+    await chat.say("domicilio")  # a shortcut: no model needed
+    with capture_logs() as logs, contextlib.suppress(AssertionError):
+        await chat.say("una hamburguesa por favor")
+    [failed] = [log for log in logs if log["event"] == "turn_failed"]
+    assert failed["conversation_id"] == chat.conversation.id
+    assert failed["state_before"] == "ordering" and failed["latency_ms"] >= 0

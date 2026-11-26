@@ -50,7 +50,7 @@ async def test_what_the_bot_cannot_forward_is_named(kind: MessageKind, shown: st
     chat = Chat(BURGER)
     code = await _with_a_person(chat)
     await chat.send(chat.message(None, kind))
-    assert chat.staff[-1].text.startswith(f"💬 #{code}: {shown}")
+    assert chat.staff[-1].text == f"💬 #{code}: {shown}"
 
 
 async def test_a_location_reaches_the_staff_as_a_map_link() -> None:
