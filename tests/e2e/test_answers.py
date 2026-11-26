@@ -390,3 +390,22 @@ async def test_coming_back_after_exactly_a_day_offers_to_recover() -> None:
     await chat.say("unos tenders")
     chat.wait(hours=BURGER.session.resume_prompt_hours)
     assert "¿Lo retomamos?" in await chat.say("una corona")
+
+
+async def test_every_kind_of_reply_separates_its_parts_with_a_blank_line() -> None:
+    first = await Chat(BURGER).say("una pizza")  # disclosure, then the off-menu phrase
+    disclosure = (
+        "Soy el asistente automático de Burger Demo. "
+        "Si prefieres hablar con una persona, escribe “asesor”."
+    )
+    assert first == f"{disclosure}\n\n{BURGER.tone.off_menu.format(item='pizza')}"  # type: ignore[union-attr]
+    chat = Chat(BURGER)
+    for text in ("unos tenders", "no", "Ana", "3001234567", "para recoger", "nequi", "sí"):
+        await chat.say(text)
+    assert await chat.say("¿a qué hora abren?") == (
+        "Nuestro horario: martes, miércoles, jueves, domingo de 12:00 a 22:00; viernes, sábado de "
+        "12:00 a 23:30.\\n\\nTu pedido sigue en confirmación, ya casi te avisamos."
+    ).replace("\\n", "\n")
+    await chat.tap("Aprobar")
+    reply = await chat.say("quiero hacer un cambio")
+    assert reply.startswith("Tu pedido ya está confirmado.\n\nYa te paso con alguien del equipo")
