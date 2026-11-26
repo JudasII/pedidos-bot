@@ -67,8 +67,8 @@ def test_the_tone_comes_from_the_config(config: object, expected: str) -> None:
 
 
 def test_emoji_follows_the_config() -> None:
-    assert Responder(BURGER).text(Msg.CONFIRMED, eta="20 minutos").endswith("✅")
-    assert "✅" not in Responder(MINIMAL).text(Msg.CONFIRMED, eta="20 minutos")
+    assert Responder(BURGER).text(Msg.CONFIRMED, eta="20 minutos", code="AB12").endswith("✅")
+    assert "✅" not in Responder(MINIMAL).text(Msg.CONFIRMED, eta="20 minutos", code="AB12")
 
 
 def test_menu_lists_categories_and_prices() -> None:

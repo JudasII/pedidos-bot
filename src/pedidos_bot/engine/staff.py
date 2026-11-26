@@ -6,6 +6,7 @@ alone (ADR-0004): it never looks at the conversation the order came from.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import StrEnum
 
@@ -41,9 +42,67 @@ def _payload(order: Order, verdict: Verdict) -> str:
     return f"{verdict.value}:{order.idempotency_key}:{order.revision}"
 
 
-def parse_staff(inbound: InboundMessage) -> StaffDecision | None:
-    """What a message from the staff chat asks for. None if it asks for nothing."""
-    if inbound.kind is not MessageKind.INTERACTIVE_REPLY or not inbound.reply_payload:
+class StaffReply(FrozenModel):
+    """A staff member writes to a customer in a handoff."""
+
+    external_id: str
+    code: str
+    text: str
+    at: datetime
+
+
+class StaffReturn(FrozenModel):
+    """A staff member hands the customer back to the bot."""
+
+    external_id: str
+    code: str
+    at: datetime
+
+
+StaffAction = StaffDecision | StaffReply | StaffReturn
+
+_COMMAND = re.compile(r"^/(responder|devolver)(?:@\w+)?(?:\s+(.*))?$", re.IGNORECASE | re.DOTALL)
+_CODE = re.compile(r"[0-9A-Fa-f]{4}")
+_CODE_IN_TEXT = re.compile(r"#([0-9A-Fa-f]{4})\b")
+
+
+def parse_staff(inbound: InboundMessage) -> StaffAction | None:
+    """What a message from the staff chat asks for. None if it asks for nothing.
+
+    A tap on ✓/✗ decides an order. In a handoff, a reply to any of the bot's messages about
+    the customer (they all carry `#CODE`) writes to them, and so does `/responder CODE text`;
+    `/devolver CODE`, or `/devolver` as a reply, hands them back to the bot.
+    """
+    if inbound.kind is MessageKind.INTERACTIVE_REPLY:
+        return _decision(inbound)
+    text = (inbound.text or "").strip()
+    if inbound.kind is not MessageKind.TEXT or not text:
+        return None
+    quoted = _CODE_IN_TEXT.search(inbound.reply_to_text or "")
+    replied_to = quoted.group(1).upper() if quoted else None
+    command = _COMMAND.match(text)
+    if command is None:
+        if replied_to is None:
+            return None  # chatter among the staff
+        return StaffReply(
+            external_id=inbound.external_id, code=replied_to, text=text, at=inbound.sent_at
+        )
+    rest = (command.group(2) or "").strip()
+    first, _, body = rest.partition(" ")
+    code, said = replied_to, rest
+    if _CODE.fullmatch(first):
+        code, said = first.upper(), body.strip()
+    if code is None:
+        return None
+    if command.group(1).lower() == "devolver":
+        return StaffReturn(external_id=inbound.external_id, code=code, at=inbound.sent_at)
+    if not said:
+        return None
+    return StaffReply(external_id=inbound.external_id, code=code, text=said, at=inbound.sent_at)
+
+
+def _decision(inbound: InboundMessage) -> StaffDecision | None:
+    if not inbound.reply_payload:
         return None
     verdict, _, rest = inbound.reply_payload.partition(":")
     key, _, revision = rest.rpartition(":")
@@ -106,3 +165,70 @@ def decision_notice(order: Order, verdict: Verdict) -> OutboundMessage:
 
 def stale_notice(code: str) -> OutboundMessage:
     return OutboundMessage(text=f"El pedido {code} ya no está pendiente: no cambié nada.")
+
+
+_NOT_TEXT = {
+    MessageKind.VOICE: "[nota de voz]",
+    MessageKind.IMAGE: "[foto]",
+    MessageKind.DOCUMENT: "[documento]",
+    MessageKind.STICKER: "[sticker]",
+    MessageKind.UNSUPPORTED: "[un mensaje que no puedo mostrar]",
+}
+
+
+def what_they_sent(inbound: InboundMessage) -> str:
+    """A customer message as staff can read it. Media is named, a location becomes a map link."""
+    if inbound.kind is MessageKind.LOCATION and inbound.location is not None:
+        point = inbound.location
+        return f"📍 https://maps.google.com/?q={point.latitude},{point.longitude}"
+    if inbound.kind in _NOT_TEXT:
+        caption = f" {inbound.text}" if inbound.text else ""
+        return f"{_NOT_TEXT[inbound.kind]}{caption}"
+    return inbound.content
+
+
+ORDER_STATUS = {
+    OrderStatus.PENDING_VALIDATION: "esperando aprobación",
+    OrderStatus.CONFIRMED: "confirmado",
+    OrderStatus.REJECTED: "rechazado",
+    OrderStatus.WITHDRAWN: "retirado",
+}
+
+
+def handoff_notice(
+    code: str, said: str, items: list[str], order: str | None = None
+) -> OutboundMessage:
+    """`order` names the order the customer is most likely talking about, if any."""
+    rows = [f"🙋 Cliente #{code} pide hablar con una persona.", f"Escribió: “{said}”"]
+    if order is not None:
+        rows.append(order)
+    elif items:
+        rows.append("Pedido en curso: " + ", ".join(items))
+    rows.append(
+        f"Responde a este mensaje para escribirle (o /responder {code} tu mensaje). "
+        f"Para devolverlo al asistente: /devolver {code}."
+    )
+    return OutboundMessage(text="\n".join(rows))
+
+
+def relay_notice(code: str, inbound: InboundMessage) -> OutboundMessage:
+    return OutboundMessage(text=f"💬 #{code}: {what_they_sent(inbound)}")
+
+
+def returned_notice(code: str) -> OutboundMessage:
+    return OutboundMessage(text=f"✅ #{code} volvió al asistente automático.")
+
+
+def customer_left_notice(code: str, *, cancelled: bool) -> OutboundMessage:
+    if cancelled:
+        return OutboundMessage(text=f"❌ #{code} canceló el pedido.")
+    return OutboundMessage(text=f"↩️ #{code} volvió al asistente por su cuenta.")
+
+
+def timeout_notice(code: str, minutes: int) -> OutboundMessage:
+    text = f"⏱️ #{code}: nadie respondió en {minutes} minutos; el asistente automático retomó."
+    return OutboundMessage(text=text)
+
+
+def not_in_handoff_notice(code: str) -> OutboundMessage:
+    return OutboundMessage(text=f"#{code} ya no está con una persona: no le envié nada.")

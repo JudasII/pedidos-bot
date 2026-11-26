@@ -125,6 +125,13 @@ def test_a_message_from_the_staff_chat_is_read() -> None:
     assert inbound is not None and (inbound.chat_ref, inbound.text) == ("-100", "/devolver")
 
 
+def test_a_reply_keeps_the_text_it_answers() -> None:
+    quoted = {"message_id": 3, "text": "💬 #AB12: hola", "chat": {"id": -100, "type": "group"}}
+    update = make_update(1, chat_id=-100, chat_type="group", text="Ya va", reply_to_message=quoted)
+    inbound = to_inbound(update, staff_chat="-100")
+    assert inbound is not None and inbound.reply_to_text == "💬 #AB12: hola"
+
+
 def test_a_tap_in_the_staff_chat_is_an_interactive_reply() -> None:
     inbound = to_inbound(make_tap(9, "ok:abc:1"), staff_chat="-100")
     assert inbound is not None

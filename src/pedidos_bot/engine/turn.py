@@ -21,6 +21,7 @@ from pedidos_bot.engine.actions import (
     AskHuman,
     AskQuestion,
     CancelOrder,
+    ChangeOrder,
     Confirm,
     Deny,
     Greeting,
@@ -39,7 +40,7 @@ from pedidos_bot.engine.conversation import (
 )
 from pedidos_bot.engine.lifecycle import Event, LifecycleState
 from pedidos_bot.engine.policy import NextStep, Step, next_step
-from pedidos_bot.engine.resolver import Match, MatchStatus, MenuResolver
+from pedidos_bot.engine.resolver import Match, MatchStatus, MenuResolver, normalize
 from pedidos_bot.engine.responder import Responder, join_options
 from pedidos_bot.engine.shortcuts import is_command, is_confirm, is_deny, is_done_adding
 from pedidos_bot.engine.templates import Msg
@@ -56,6 +57,7 @@ _NAME_PREFIX = re.compile(
     re.IGNORECASE,
 )
 _MAX_NAME_WORDS = 5
+_REFUSAL = re.compile(r"^(?:no|sin)\b(?:\s+(?:quiero|pedi|pido|era|es|eran))?\s+(.+)$")
 _NOT_A_NAME = re.compile(
     r"^(?:y\s+)?(?:un|una|uno|unos|unas|otro|otra|otros|otras|\d+|dos|tres|cuatro|quiero|quisiera"
     r"|dame|me\s+das|regalame|regálame|me\s+regalas|agrega|agregale|agrégale|quita|quitale"
@@ -192,10 +194,21 @@ class Turn:
                 self._add_clarified(head)
             return True
         if isinstance(head, ProductClarification):
+            if self._refuses(head, text):
+                self._pop_clarification()
+                return True
             return self._answer_product(head, text)
         if isinstance(head, AddressClarification):
             return self._answer_address(head, text)
         return self._answer_modifier(head, text)
+
+    def _refuses(self, head: ProductClarification, text: str) -> bool:
+        """ "no pedí pizza", "sin pizza": a no to the very thing asked about."""
+        refusal = _REFUSAL.match(normalize(text))
+        if refusal is None:
+            return False
+        named = self._resolver.resolve_product(refusal.group(1)).candidates
+        return any(candidate.id in head.candidates for candidate in named)
 
     def _answer_address(self, head: AddressClarification, text: str) -> bool:
         if not is_confirm(text):
@@ -254,6 +267,11 @@ class Turn:
         if payment is None:
             return False
         amount = parse_amount(text)
+        total = carts.totals(self._cart, self._config).total
+        if amount is not None and amount < total:
+            self._note(Msg.CASH_SHORT, amount=format_cop(amount), total=format_cop(total))
+            self._update(change_asked=False)  # so the question comes again
+            return True
         if amount is not None:
             cart = carts.set_payment(self._cart, self._config, payment.method_id, amount)
             self._set_cart(cart)
@@ -297,6 +315,18 @@ class Turn:
         self._event(Event.CANCEL)
         self._final = self._responder.text(Msg.CANCELLED)
 
+    def _change_order(self) -> None:
+        """A wish to change, without the change. A confirmed order is the restaurant's now."""
+        if self.conversation.follows_confirmed and not self._cart.lines:
+            self._note(Msg.ALREADY_CONFIRMED)
+            self._start_handoff()
+            return
+        if self.conversation.lifecycle.can(Event.CHANGE_REQUESTED):
+            self._withdraw_order()
+            self._event(Event.CHANGE_REQUESTED)
+        self._understood = True
+        self._final = self._responder.text(Msg.ASK_CHANGE)
+
     def _withdraw_order(self) -> None:
         if self.conversation.lifecycle.state is LifecycleState.PENDING_STAFF_CONFIRMATION:
             self.withdrawn_order = self.conversation.id
@@ -324,6 +354,8 @@ class Turn:
                 self._answer_question(action)
             case Greeting():
                 self._understood = True
+            case ChangeOrder():
+                self._change_order()
 
     def _add_item(self, action: AddItem) -> None:
         item = self._resolver.resolve_item(action.product, action.modifiers)
@@ -377,8 +409,10 @@ class Turn:
         self._update(clarifications=remaining)
 
     def _queue(self, clarification: Clarification) -> None:
-        self._update(clarifications=(*self.conversation.clarifications, clarification))
         self._understood = True
+        if clarification in self.conversation.clarifications:
+            return  # asked already: a second copy would add the item twice once answered
+        self._update(clarifications=(*self.conversation.clarifications, clarification))
 
     def _add_line(
         self,
@@ -543,6 +577,12 @@ class Turn:
                 self._notes.append(self._responder.hours())
             case "price":
                 self._answer_price(action.product)
+            case "total":
+                if self._cart.lines:
+                    total = format_cop(carts.totals(self._cart, self._config).total)
+                    self._note(Msg.TOTAL_SO_FAR, total=total)
+                else:
+                    self._note(Msg.TOTAL_EMPTY)
             case _:
                 self._note(Msg.QUESTION_UNKNOWN)
 
@@ -565,12 +605,13 @@ class Turn:
             elif self._config.modes.shadow:
                 self._place_order()
                 self._event(Event.SENT_TO_STAFF)
-                self._final = self._responder.text(Msg.SENT_TO_STAFF)
+                self._final = self._responder.text(Msg.SENT_TO_STAFF, code=self.conversation.code)
             else:
                 self._place_order()
                 self._event(Event.CUSTOMER_CONFIRMED)
                 eta = self._responder.eta(self._cart)
-                self._final = self._responder.text(Msg.CONFIRMED, eta=eta)
+                code = self.conversation.code
+                self._final = self._responder.text(Msg.CONFIRMED, eta=eta, code=code)
         elif self.conversation.asked is Step.ITEMS and confirmed:
             # "Yes" to "what would you like?" (or to an invitation to order): show what there is.
             self._understood = True
@@ -594,6 +635,7 @@ class Turn:
             channel=conversation.channel,
             chat_ref=conversation.chat_ref,
             revision=revision,
+            order_id=conversation.id,  # its code is the conversation's: one code per order
         )
         self._update(order_revision=revision)
 
@@ -616,9 +658,10 @@ class Turn:
                     self._note(Msg.NOT_UNDERSTOOD)
                 # Offered before the escalation: a frustrated customer just leaves.
                 self._note(Msg.OFFER_PERSON)
-        if not self.conversation.greeted:
+        if not self.conversation.disclosed:
             name = self._config.restaurant.name
             self._notes.insert(0, self._responder.text(Msg.BOT_DISCLOSURE, restaurant=name))
+            self._update(disclosed=True)
         if self._final is not None:
             self._update(asked=None, asked_choice=None, options=())
             return OutboundMessage(text="\n\n".join([*self._notes, self._final]))

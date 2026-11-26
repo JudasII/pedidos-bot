@@ -163,6 +163,10 @@ def _strip_leading(text: str, fillers: frozenset[str], *, numbers: bool = False)
     return " ".join(tokens)
 
 
+_NO_IDENTITY = _LEADING_FILLERS | {"a", "al", "pa", "para", "de", "del"}
+"""Leading words that never tell one menu entry from another."""
+
+
 def _product_query(text: str) -> str:
     """The part of `text` that names a product: a leading number there is a quantity."""
     return _strip_leading(normalize(text), _LEADING_FILLERS, numbers=True)
@@ -254,9 +258,13 @@ class _Index:
 
     def _match_fuzzy(self, raw: str, query: str) -> Match:
         scored: list[tuple[float, _Entry, str]] = []
+        # Articles and prepositions carry no identity: "a este" must not score against an
+        # alias like "la estelar" on the shared "a e".
+        query = _strip_leading(query, _NO_IDENTITY) or query
         for entry in self.entries:
             best_score, best_leftover = 0.0, ""
             for surface in entry.surfaces:
+                surface = _strip_leading(surface, _NO_IDENTITY) or surface
                 score, leftover = _score_with_window(query, surface)
                 if score > best_score:
                     best_score, best_leftover = score, leftover

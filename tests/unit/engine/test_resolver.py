@@ -303,3 +303,22 @@ def test_unavailable_products_are_not_resolvable() -> None:
 )
 def test_normalize(text: str, expected: str) -> None:
     assert normalize(text) == expected
+
+
+@pytest.mark.parametrize("text", ["a este", "a esta", "pa este", "ese"])
+def test_short_words_with_an_article_match_no_product(text: str) -> None:
+    """ "a este" scored 83 against the alias "la especial" because of the shared article."""
+    resolver = MenuResolver(sample_config("burger_demo"))
+    assert resolver.resolve_product(text).status is MatchStatus.NOT_FOUND
+
+
+@pytest.mark.parametrize(
+    ("text", "product"),
+    [("la epecial", "hamburguesa_especial"), ("una sencila", "hamburguesa_sencilla")],
+)
+def test_typos_after_an_article_still_resolve(text: str, product: str) -> None:
+    resolver = MenuResolver(sample_config("burger_demo"))
+    match = resolver.resolve_product(text)
+    assert (
+        match.status is MatchStatus.RESOLVED and match.best is not None and match.best.id == product
+    )

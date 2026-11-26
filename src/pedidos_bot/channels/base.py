@@ -42,6 +42,8 @@ class InboundMessage(FrozenModel):
     kind: MessageKind = MessageKind.TEXT
     text: str | None = None
     reply_payload: str | None = None
+    reply_to_text: str | None = None
+    """The text of the message this one answers, when the sender used the app's "reply"."""
     media_ref: str | None = None
     location: GeoPoint | None = None
     raw: dict[str, Any] = Field(default_factory=dict)

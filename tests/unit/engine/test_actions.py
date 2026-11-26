@@ -27,6 +27,7 @@ ACTION_TYPES = {
     "ask_human",
     "ask_question",
     "greeting",
+    "change_order",
     "unknown",
 }
 

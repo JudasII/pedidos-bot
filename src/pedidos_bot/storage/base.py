@@ -114,6 +114,14 @@ class ConversationRepository(Protocol):
 
     async def load_order(self, idempotency_key: str) -> Order | None: ...
 
+    async def load_by_code(self, code: str) -> Conversation | None:
+        """The conversation whose `code` this is, as staff typed it (upper case)."""
+        ...
+
+    async def in_handoff(self) -> list[Conversation]:
+        """Conversations a person is answering, or was."""
+        ...
+
     async def pending_outbound(self) -> list[OutboxEntry]: ...
 
     async def deliver_next(self, send: Sender) -> bool:

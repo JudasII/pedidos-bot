@@ -64,12 +64,15 @@ def create_order(
     channel: str | None = None,
     chat_ref: str | None = None,
     revision: int = 1,
+    order_id: str | None = None,
 ) -> Order:
     missing = pending(cart, config)
     if missing:
         raise IncompleteOrderError(f"cart is missing: {[str(slot) for slot in missing]}")
     shadow = config.modes.shadow
+    identity = {"id": order_id} if order_id else {}
     return Order(
+        **identity,
         idempotency_key=idempotency_key,
         restaurant_id=config.restaurant.id,
         source=source,

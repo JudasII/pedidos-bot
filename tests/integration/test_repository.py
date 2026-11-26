@@ -18,6 +18,7 @@ from pedidos_bot.domain.cart import (
     set_phone,
 )
 from pedidos_bot.domain.order import Order, OrderSource, OrderStatus, create_order
+from pedidos_bot.engine.lifecycle import Event
 from pedidos_bot.storage import base
 from pedidos_bot.storage.base import ConversationRepository, OutboxEntry
 from pedidos_bot.storage.postgres import MIGRATIONS_DIR, PostgresRepository, migrate
@@ -390,6 +391,22 @@ async def test_an_order_from_a_failed_turn_is_not_saved(
             scope.place_order(_order(qty=1))
             raise RuntimeError("boom")
     assert await repository.load_order("key") is None
+
+
+async def test_conversations_are_found_by_code_and_by_handoff(
+    repository: ConversationRepository,
+) -> None:
+    async with repository.turn(_inbound("1", chat_ref="ana")) as scope:
+        assert scope is not None
+        ana = scope.conversation
+        lifecycle = ana.lifecycle.apply(Event.HANDOFF_REQUESTED)
+        scope.save(ana.model_copy(update={"lifecycle": lifecycle}))
+    async with repository.turn(_inbound("2", chat_ref="luis")) as scope:
+        assert scope is not None
+    found = await repository.load_by_code(ana.code)
+    assert found is not None and found.chat_ref == "ana"
+    assert await repository.load_by_code("ZZZZ") is None
+    assert [c.chat_ref for c in await repository.in_handoff()] == ["ana"]
 
 
 @pytest.mark.postgres

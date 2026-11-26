@@ -107,6 +107,40 @@ class Chat:
         await deliver_pending(self.repository, self.channel)
         return self._seen_since(before)
 
+    async def staff_says(self, text: str, reply_to: OutboundMessage | None = None) -> str:
+        """A cashier writes in the staff chat, optionally as a reply to one of the bot's messages.
+
+        Returns what the customer sees.
+        """
+        assert self.staff_chat is not None
+        action = InboundMessage(
+            channel="test",
+            external_id=str(next(self._ids)),
+            chat_ref=self.staff_chat,
+            customer_ref="cashier",
+            sent_at=self._now,
+            text=text,
+            reply_to_text=reply_to.text if reply_to else None,
+        )
+        before = len(self.channel.sent)
+        parsed = parse_staff(action)
+        if parsed is not None:
+            await self.service.handle_staff(parsed)
+        await self._refresh()
+        return self._seen_since(before)
+
+    async def tick(self) -> str:
+        """The periodic check for handoffs nobody answered. Returns what the customer sees."""
+        before = len(self.channel.sent)
+        await self.service.expire_handoffs(self._now)
+        await self._refresh()
+        return self._seen_since(before)
+
+    async def _refresh(self) -> None:
+        loaded = await self.repository.load("test", self.chat_ref)
+        self._conversation = loaded or self._conversation
+        await deliver_pending(self.repository, self.channel)
+
     def wait(self, **delta: float) -> None:
         self._now += timedelta(**delta)
 
