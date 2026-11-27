@@ -88,3 +88,12 @@ def test_the_devolver_command(text: str, reply_to: str | None) -> None:
 )
 def test_anything_else_from_staff_asks_for_nothing(text: str, reply_to: str | None) -> None:
     assert _staff_text(text, reply_to) is None
+
+
+def test_a_photo_in_the_staff_chat_is_not_a_reply() -> None:
+    photo = make_inbound(kind=MessageKind.IMAGE, text="mira", reply_to_text="💬 #AB12: hola")
+    assert parse_staff(photo) is None
+
+
+def test_responder_with_nothing_to_say_says_nothing() -> None:
+    assert _staff_text("/responder", reply_to="💬 #AB12: hola") is None

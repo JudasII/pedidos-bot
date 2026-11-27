@@ -118,10 +118,8 @@ class ConversationService:
                 if result.reply is not None:
                     scope.enqueue(OutboxEntry(inbound.chat_ref, result.reply, key))
                 if result.order is not None:
-                    order = await _keeping_its_id(scope, result.order)
-                    result = replace(result, order=order)
-                    scope.place_order(order)
-                    self._tell_staff(scope, order_notification(order, self._config), key)
+                    scope.place_order(result.order)
+                    self._tell_staff(scope, order_notification(result.order, self._config), key)
                 if result.withdrawn_order is not None:
                     scope.withdraw_order(result.withdrawn_order)
                     withdrawn = await scope.load_order(result.withdrawn_order)
@@ -341,8 +339,7 @@ class ConversationService:
                 log.info("staff_decision", order_id=order.id, applied=False)
                 return False
             lifecycle = conversation.lifecycle.apply(event)
-            cleared = {"lifecycle": lifecycle, "asked": None, "asked_choice": None, "options": ()}
-            scope.save(conversation.model_copy(update=cleared))
+            scope.save(conversation.model_copy(update={"lifecycle": lifecycle}))
             status = OrderStatus.CONFIRMED if approved else OrderStatus.REJECTED
             scope.place_order(order.model_copy(update={"status": status}))
             if approved:
@@ -511,14 +508,6 @@ class ConversationService:
             actions=turn.actions,
             notices=tuple(turn.notices),
         )
-
-
-async def _keeping_its_id(scope: TurnScope, order: Order) -> Order:
-    """A revised order is the same order: staff must see the code they already know."""
-    if order.revision == 1:
-        return order
-    previous = await scope.load_order(order.idempotency_key)
-    return order if previous is None else order.model_copy(update={"id": previous.id})
 
 
 def _since(started: float) -> int:

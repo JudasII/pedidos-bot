@@ -394,3 +394,73 @@ async def test_buttons_with_their_own_payload_become_inline_buttons() -> None:
             ]
         ]
     }
+
+
+# --- what mutation testing showed unguarded -----------------------------------------------------
+
+
+async def test_polling_asks_for_messages_and_taps_and_waits_long_enough() -> None:
+    fake = FakeTelegram(make_update(41))
+
+    async def on_inbound(inbound: InboundMessage) -> None:
+        pass
+
+    await _poll(fake, on_inbound, lambda: not fake.updates)
+    method, request = fake.requests[0]
+    assert method == "getUpdates"
+    body = json.loads(request.content)
+    assert (body["timeout"], body["allowed_updates"]) == (30, ["message", "callback_query"])
+    assert request.extensions["timeout"]["read"] == 40  # longer than Telegram holds the call
+
+
+async def test_a_send_waits_ten_seconds_and_fits_the_keyboard() -> None:
+    fake = FakeTelegram()
+    async with _channel(fake) as channel:
+        message = OutboundMessage(text="¿Confirmamos?", quick_replies=_replies("Sí", "No"))
+        await channel.send("7", message, dedupe_key="k")
+    _, request = fake.requests[0]
+    assert request.extensions["timeout"]["read"] == 10
+    assert fake.sent[0]["reply_markup"]["resize_keyboard"] is True
+
+
+def test_another_group_is_not_the_staff_chat() -> None:
+    update = make_update(1, chat_id=-200, chat_type="group", text="hola")
+    assert to_inbound(update, staff_chat="-100") is None
+
+
+def test_a_reply_to_a_captioned_message_keeps_the_caption() -> None:
+    quoted = {"message_id": 3, "caption": "💬 #AB12: [foto]", "chat": {"id": -100}}
+    update = make_update(1, chat_id=-100, chat_type="group", text="Ya va", reply_to_message=quoted)
+    inbound = to_inbound(update, staff_chat="-100")
+    assert inbound is not None and inbound.reply_to_text == "💬 #AB12: [foto]"
+
+
+def test_a_tap_is_stamped_in_utc() -> None:
+    inbound = to_inbound(make_tap(9, "ok:abc:1"), staff_chat="-100")
+    assert inbound is not None and inbound.sent_at.tzinfo is UTC
+
+
+async def test_failures_are_logged_with_what_failed() -> None:
+    fake = FakeTelegram(make_update(41))
+    fake.failures = [httpx.ConnectError("no route"), refusal(502)]
+    unread = {"update_id": 40, "message": {"chat": {"id": 7, "type": "private"}, "text": "x"}}
+    fake.updates.insert(0, unread)
+    calls = 0
+
+    async def on_inbound(inbound: InboundMessage) -> None:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("down")
+
+    with capture_logs() as logs:
+        await _poll(fake, on_inbound, lambda: not fake.updates)
+    by_event = [(log["event"], log) for log in logs]
+    polls = [log["error"] for event, log in by_event if event == "telegram_poll_failed"]
+    assert polls == ["getUpdates: ConnectError", "getUpdates: http 502"]
+    [unreadable] = [log for event, log in by_event if event == "telegram_update_unreadable"]
+    assert (unreadable["update_id"], unreadable["error"]) == (40, "KeyError")
+    turns = [log for event, log in by_event if event == "telegram_turn_failed"]
+    assert [(t["update_id"], t["attempt"], t["error"]) for t in turns] == [
+        (41, 1, "RuntimeError"), (41, 2, "RuntimeError"), (41, 3, "RuntimeError"),
+    ]  # fmt: skip
+    assert by_event[-1][1]["update_id"] == 41  # telegram_update_dropped

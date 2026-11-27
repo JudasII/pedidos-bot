@@ -61,3 +61,12 @@ def test_terminal_states_have_no_way_out(state: LifecycleState) -> None:
     lifecycle = Lifecycle(state=state)
     assert lifecycle.is_terminal
     assert not any(lifecycle.can(event) for event in E)
+
+
+def test_only_a_handoff_remembers_where_it_came_from() -> None:
+    lifecycle = Lifecycle().apply(Event.ORDER_COMPLETE)
+    assert lifecycle.before_handoff is None
+    assert (
+        lifecycle.apply(Event.HANDOFF_REQUESTED).before_handoff
+        is LifecycleState.AWAITING_CONFIRMATION
+    )
